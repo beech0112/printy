@@ -95,149 +95,24 @@ export const useSignIn = () => {
         const user = data.user;
         const userId = user?.id;
         let destination = '/customer';
-        let customerType: string | undefined;
-        if (userId) {
-          const { data: byId, error: getErr } = await supabase
-            .from('customer')
-            .select('customer_type')
-            .eq('customer_id', userId)
-            .maybeSingle();
-          if (getErr) throw getErr;
-          let customerById = byId as { customer_type?: string } | null;
-          if (!customerById) {
-            const m = (user?.user_metadata ?? {}) as Record<string, unknown>;
-            const addr = (m.address ?? {}) as Record<string, unknown>;
-            const hasAddr = Boolean(
-              typeof addr.region === 'string' &&
-                typeof addr.province === 'string' &&
-                typeof addr.city === 'string' &&
-                typeof addr.barangay === 'string' &&
-                typeof addr.street === 'string'
-            );
-            let locationId: string | null = null;
-            if (hasAddr) {
-              try {
-                const { data: rpcData, error: rpcError } = await supabase.rpc(
-                  'upsert_full_address',
-                  {
-                    p_region: (addr.region as string) || null,
-                    p_province: (addr.province as string) || null,
-                    p_city: (addr.city as string) || null,
-                    p_zip_code: ((addr as { zip_code?: string; zip?: string })
-                      .zip_code ||
-                      (addr as { zip?: string }).zip ||
-                      null) as string | null,
-                    p_barangay: (addr.barangay as string) || null,
-                    p_street: (addr.street as string) || null,
-                    p_building_number: (addr.building_number as string) || null,
-                    p_building_name: (addr.building_name as string) || null,
-                  }
-                );
-                if (rpcError) throw rpcError;
-                locationId = (rpcData as string | null) ?? null;
-              } catch (rpcError: unknown) {
-                // Try fallback function
-                try {
-                  const { data: locData, error: locError } = await supabase.rpc(
-                    'upsert_location_from_meta',
-                    {
-                      p_region: (addr.region as string) || null,
-                      p_province: (addr.province as string) || null,
-                      p_city: (addr.city as string) || null,
-                      p_zip_code: ((addr as { zip_code?: string; zip?: string })
-                        .zip_code ||
-                        (addr as { zip?: string }).zip ||
-                        null) as string | null,
-                      p_barangay: (addr.barangay as string) || null,
-                      p_street: (addr.street as string) || null,
-                      p_building_number:
-                        (addr.building_number as string) || null,
-                      p_building_name: (addr.building_name as string) || null,
-                    }
-                  );
-                  if (locError) throw locError;
-                  locationId = (locData as string | null) ?? null;
-                } catch {
-                  // Location creation failed, but we can still create customer with NULL location_id
-                  locationId = null;
-                }
-              }
-            }
-            // Upsert customer record (trigger may have already created it with NULL location_id)
-            // Always upsert even if locationId is NULL, since location_id is now nullable
-            const upsertRes = await supabase.from('customer').upsert(
-              {
-                customer_id: userId,
-                first_name: (
-                  (user?.user_metadata ?? {}) as Record<string, unknown>
-                ).first_name as string | null,
-                last_name: (
-                  (user?.user_metadata ?? {}) as Record<string, unknown>
-                ).last_name as string | null,
-                contact_no: (
-                  (user?.user_metadata ?? {}) as Record<string, unknown>
-                ).phone as string | null,
-                email_address: user?.email || null,
-                customer_type:
-                  (((user?.user_metadata ?? {}) as Record<string, unknown>)
-                    .role as string) || 'regular',
-                // Ensure gender and birthday are captured from user metadata
-                gender: ((user?.user_metadata ?? {}) as Record<string, unknown>)
-                  .gender as string | null,
-                birthday: (
-                  (user?.user_metadata ?? {}) as Record<string, unknown>
-                ).birthday as string | null,
-                location_id: locationId,
-              },
-              {
-                onConflict: 'customer_id',
-                ignoreDuplicates: false,
-              }
-            );
-            if (upsertRes.error) throw upsertRes.error;
-            customerById = {
-              customer_type:
-                (((user?.user_metadata ?? {}) as Record<string, unknown>)
-                  .role as string) || 'regular',
-            } as {
-              customer_type: string;
-            };
-          }
-          customerType = customerById?.customer_type;
-        }
-        if (!customerType && user?.email) {
-          const { data: byEmail } = await supabase
-            .from('customer')
-            .select('customer_type')
-            .eq('email_address', user.email)
-            .maybeSingle();
-          customerType = (byEmail?.customer_type as string) || undefined;
-        }
-        const routeMap: Record<string, string> = {
-          regular: '/customer',
-          customer: '/customer',
-          valued: '/valued',
-          admin: '/admin',
-          superadmin: '/superadmin',
-        };
-        destination =
-          customerType && routeMap[customerType]
-            ? routeMap[customerType]
-            : '/customer';
-        // Persist minimal user info for later flows (e.g., Place Order)
-        try {
-          const existingUser = JSON.parse(localStorage.getItem('user') || '{}');
-          const storedUser = {
-            ...existingUser,
-            customer_id: userId ?? existingUser?.customer_id,
-            email: user?.email ?? existingUser?.email,
-            role: customerType ?? existingUser?.role,
-          };
-          localStorage.setItem('user', JSON.stringify(storedUser));
-        } catch {
-          // ignore storage errors
-        }
 
+        if (userId) {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('role, customer_type')
+            .eq('id', userId)
+            .maybeSingle();
+
+          const routeMap: Record<string, string> = {
+            admin: '/admin',
+            superadmin: '/superadmin',
+            customer: '/customer',
+            guest: '/customer',
+          };
+          destination = profile?.role
+            ? (routeMap[profile.role] ?? '/customer')
+            : '/customer';
+        }
         // Store signin success flag for destination page to show toast
         sessionStorage.setItem('signin-success', 'true');
         // Navigate immediately - toast will show on destination page

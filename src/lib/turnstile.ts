@@ -56,6 +56,10 @@ async function ensureTurnstile() {
 }
 
 export async function getTurnstileToken(action: string) {
+  const siteKey = (import.meta as any).env?.VITE_TURNSTILE_SITE_KEY as
+    | string
+    | undefined;
+  if (!siteKey) return 'bypass';
   if (
     preToken &&
     preToken.action === action &&
@@ -66,10 +70,6 @@ export async function getTurnstileToken(action: string) {
     dbg('using primed token for', action);
     return t;
   }
-  const siteKey = (import.meta as any).env?.VITE_TURNSTILE_SITE_KEY as
-    | string
-    | undefined;
-  if (!siteKey) throw new Error('Missing VITE_TURNSTILE_SITE_KEY');
 
   const turnstile = await ensureTurnstile();
   const container = document.createElement('div');
@@ -135,7 +135,8 @@ export async function renderInlineTurnstile(
     | string
     | undefined;
   if (!siteKey) {
-    throw new Error('Missing VITE_TURNSTILE_SITE_KEY');
+    onSuccess?.('bypass');
+    return;
   }
   const el = document.getElementById(containerId) as HTMLElement | null;
   if (!el) {
@@ -208,7 +209,7 @@ async function getTurnstileTokenInteractive(action: string) {
   const siteKey = (import.meta as any).env?.VITE_TURNSTILE_SITE_KEY as
     | string
     | undefined;
-  if (!siteKey) throw new Error('Missing VITE_TURNSTILE_SITE_KEY');
+  if (!siteKey) return 'bypass';
   const turnstile = await ensureTurnstile();
 
   // Mount inside inline container under password field if present; else fallback overlay
@@ -295,6 +296,13 @@ export async function assertHumanTurnstile(action: string) {
     return pendingVerify;
   }
   pendingVerify = (async () => {
+    // Bypass entirely when no site key (local dev)
+    const siteKey = (import.meta as any).env?.VITE_TURNSTILE_SITE_KEY as string | undefined;
+    if (!siteKey) {
+      dbg('no site key — bypassing turnstile for', action);
+      return { token: 'bypass' } as { token: string };
+    }
+
     // Feature flags: allow bypass per action for troubleshooting
     const globalEnable = String(
       (import.meta as any).env?.VITE_TURNSTILE_ENABLED ?? 'true'

@@ -391,6 +391,5 @@ export interface SearchFilters {
 }
 
 // Re-export specialized types
-export * from './chatFlow';
 export * from './customer';
 export * from './filters';

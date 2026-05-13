@@ -11,7 +11,13 @@
  * - Reduced code duplication across action handlers
  */
 
-import type { ActionExecutionResult } from '@features/chat/types';
+// ActionExecutionResult removed with flow engine — using local type
+type ActionExecutionResult = {
+  messages: Array<{ id: string; role: string; text: string; ts: number }>;
+  quickReplies?: Array<{ id: string; label: string; value: string }>;
+  nextNodeId?: string | null;
+  endSession?: boolean;
+};
 
 /**
  * Standard error response structure

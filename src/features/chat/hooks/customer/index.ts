@@ -6,10 +6,6 @@ export {
   default as CustomerConversations,
 } from './useCustomerConversations';
 export {
-  useJsonbFlowConversations,
-  default as JsonbFlowConversations,
-} from './useJsonbFlowConversations';
-export {
   useRecentChatSessions,
   default as RecentChatSessions,
 } from './useRecentChatSessions';

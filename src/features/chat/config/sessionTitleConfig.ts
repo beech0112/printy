@@ -1,48 +1,29 @@
 /**
- * Centralized Session Title Configuration
- *
- * Single source of truth for all chat session title generation.
- * Ensures consistent titles across customer and admin interfaces.
+ * Session title helpers.
+ * Flow-based title map removed — sessions are now titled by the AI pipeline
+ * from the conversation context (inquiry/quote/order display IDs).
  */
 
-// Flow ID to Display Title mapping
-// NOTE: Only includes flows that exist in chat_flows_v2 table
-export const FLOW_TITLES: Record<string, string> = {
-  // Customer flows (verified in database)
-  'ask-quote': 'Ask Quote',
-  'track-quote': 'Track Quote',
-  'track-ticket': 'Track Ticket',
-  'pay-order': 'Pay Order',
-  'reupload-payment': 'Reupload Payment',
-  'issue-ticket': 'Ask Assistance',
-  'place-order': 'Place Order',
-  'services-offered': 'Services Offered',
-  faqs: 'FAQs',
-  'about-us': 'About B.J. Santiago Inc. ',
+function isUUID(str: string): boolean {
+  const uuidRegex =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
+}
 
-  // Admin flows (verified in database)
-  'admin-quote-propose': 'Quote Proposal',
-  'admin-create-order': 'Order Creation',
-  'admin-verify-payment': 'Payment Verification',
-  'admin-review-ticket': 'Ticket Review',
-  'admin-change-order-status': 'Order Status Update',
-  'admin-add-service': 'Add Service',
-  'admin-update-service': 'Update Service',
-  'admin-modify-about-us': 'About B.J. Santiago Editor',
-  'admin-modify-faqs': 'FAQs Editor',
-
-  // Flows not in database - commented out
-  //'cancel-order': 'Cancel Order', // Not in chat_flows_v2
-};
+function formatDisplayId(displayId: string): string {
+  if (isUUID(displayId)) {
+    return `${displayId.substring(0, 8)}...`;
+  }
+  return displayId;
+}
 
 interface SessionTitleParams {
-  flowId: string;
+  topic?: string;
+  /** @deprecated use topic */
+  flowId?: string;
   metadata?: {
     title?: string;
-    context?: {
-      display_id?: string;
-      [key: string]: any;
-    };
+    context?: { display_id?: string; [key: string]: any };
     [key: string]: any;
   };
   inquiry?: { display_id?: string };
@@ -50,73 +31,20 @@ interface SessionTitleParams {
   order?: { display_id?: string };
 }
 
-/**
- * Helper function to check if a string looks like a UUID
- */
-function isUUID(str: string): boolean {
-  const uuidRegex =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  return uuidRegex.test(str);
-}
-
-/**
- * Helper function to format display ID for UI (avoid showing UUIDs)
- */
-function formatDisplayId(displayId: string): string {
-  if (isUUID(displayId)) {
-    // For UUIDs, show first 8 characters with ellipsis
-    return `${displayId.substring(0, 8)}...`;
-  }
-  return displayId;
-}
-
-/**
- * Centralized title generation logic
- *
- * Priority order:
- * 1. metadata.title (explicitly set title)
- * 2. context display_id (e.g., "Track Quote: QOT-100001")
- * 3. Foreign key display_id (admin flows with FK relationships)
- * 4. Flow mapping fallback (FLOW_TITLES)
- * 5. Last resort: flow_id or 'Chat'
- *
- * @param params - Session title parameters
- * @returns Human-readable session title
- */
 export function getSessionTitle(params: SessionTitleParams): string {
-  const { flowId, metadata, inquiry, quote, order } = params;
+  const { topic: topicParam, flowId, metadata, inquiry, quote, order } = params;
+  const topic = topicParam ?? flowId;
 
-  // 1. Highest priority: Explicitly set title in metadata
-  if (metadata?.title) {
-    return metadata.title;
-  }
+  if (metadata?.title) return metadata.title;
 
-  // 2. Context-based title with display_id
   if (metadata?.context?.display_id) {
-    const baseTitle = FLOW_TITLES[flowId] || flowId;
-    const displayId = formatDisplayId(metadata.context.display_id);
-    return `${baseTitle}: ${displayId}`;
+    const base = topic || 'Chat';
+    return `${base}: ${formatDisplayId(metadata.context.display_id)}`;
   }
 
-  // 3. Foreign key relationships (admin flows)
-  if (quote?.display_id) {
-    const displayId = formatDisplayId(quote.display_id);
-    return `Quote: ${displayId}`;
-  }
-  if (order?.display_id) {
-    const displayId = formatDisplayId(order.display_id);
-    return `Order: ${displayId}`;
-  }
-  if (inquiry?.display_id) {
-    const displayId = formatDisplayId(inquiry.display_id);
-    return `Ticket: ${displayId}`;
-  }
+  if (quote?.display_id) return `Quote: ${formatDisplayId(quote.display_id)}`;
+  if (order?.display_id) return `Order: ${formatDisplayId(order.display_id)}`;
+  if (inquiry?.display_id) return `Ticket: ${formatDisplayId(inquiry.display_id)}`;
 
-  // 4. Flow mapping fallback
-  if (FLOW_TITLES[flowId]) {
-    return FLOW_TITLES[flowId];
-  }
-
-  // 5. Last resort: Use flow_id or generic 'Chat'
-  return flowId || 'Chat';
+  return topic || 'Chat';
 }

@@ -1,50 +1,44 @@
 import type { Handler } from '@netlify/functions';
 
+// Ollama uses the OpenAI-compatible /api/chat endpoint.
+// Message format: { role: 'user' | 'assistant' | 'system', content: string }
+
 export const handler: Handler = async event => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
 
   try {
-    const { messages, forceJson, model } = JSON.parse(event.body || '{}');
+    const { messages, model, stream = false } = JSON.parse(event.body || '{}');
     if (!Array.isArray(messages) || messages.length === 0) {
       return { statusCode: 400, body: 'messages required' };
     }
 
-    const apiKey = process.env.COHERE_API_KEY || process.env.LLM_API_KEY || '';
-    const baseUrl = process.env.LLM_BASE_URL || 'https://api.cohere.ai/v1';
-    const mdl = model || process.env.LLM_MODEL || 'command-light';
-    if (!apiKey) {
-      return { statusCode: 500, body: 'Missing COHERE_API_KEY/LLM_API_KEY' };
-    }
+    const baseUrl = process.env.LLM_BASE_URL || 'http://localhost:11434';
+    const mdl = model || process.env.LLM_MODEL || 'llama3.1:8b';
 
-    const last = messages[messages.length - 1];
-    const chat_history = messages.slice(0, -1).map((m: any) => ({
-      role: m.role === 'user' ? 'USER' : 'CHATBOT',
-      message: m.content,
-    }));
-
-    const res = await fetch(`${baseUrl}/chat`, {
+    const res = await fetch(`${baseUrl}/api/chat`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: mdl,
-        message: last.content,
-        chat_history,
-        temperature: 0.2,
-        ...(forceJson ? { response_format: { type: 'json_object' } } : {}),
+        messages,
+        stream,
+        options: { temperature: 0.3 },
       }),
     });
+
     if (!res.ok) {
       return { statusCode: res.status, body: await res.text() };
     }
+
     const data: any = await res.json();
     return {
       statusCode: 200,
-      body: JSON.stringify({ text: (data as any).text || '', raw: data }),
+      body: JSON.stringify({
+        text: data?.message?.content || '',
+        raw: data,
+      }),
     };
   } catch (e: any) {
     return { statusCode: 500, body: e?.message || 'server error' };

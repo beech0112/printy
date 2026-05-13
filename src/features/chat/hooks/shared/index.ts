@@ -14,3 +14,5 @@ export {
   useChatAttachments,
   default as ChatAttachments,
 } from './useChatAttachments';
+export { useChatPipeline } from './useChatPipeline';
+export type { UseChatPipelineOptions, UseChatPipelineResult, QuoteDraft, CustomerType } from './useChatPipeline';

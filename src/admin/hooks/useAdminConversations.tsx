@@ -8,7 +8,6 @@ import React, {
   useCallback,
 } from 'react';
 import { supabase } from '@lib/supabase';
-import { fetchSessionMessagesV2 } from '@features/chat/api/jsonbChatFlowApi';
 import type { ChatMessage } from '@features/chat/types/chat';
 import { getSessionTitle } from '@features/chat/config/sessionTitleConfig';
 
@@ -255,8 +254,14 @@ export const AdminConversationsProvider: React.FC<{
     sessionId: string
   ): Promise<ChatMessage[]> => {
     try {
-      const messages = await fetchSessionMessagesV2(sessionId);
-      return messages.map(m => ({
+      // TODO: replace with AI pipeline message fetch
+      const { data: rows } = await supabase
+        .from('chat_messages')
+        .select('id, role, content, created_at, metadata')
+        .eq('session_id', sessionId)
+        .order('created_at', { ascending: true });
+      const messages = rows ?? [];
+      return messages.map((m: any) => ({
         id: m.id,
         role: m.role === 'admin' ? 'user' : 'printy', // Map admin role to user for UI
         text: m.text,

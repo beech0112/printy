@@ -45,7 +45,6 @@ export type {
 } from './types';
 
 // Re-export specialized types
-export * from './types/chatFlow';
 export * from './types/customer';
 export * from './types/filters';
 

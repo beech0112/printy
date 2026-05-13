@@ -1,19 +1,6 @@
 /**
  * Helper functions index
- * Exports all helper functions for flow processing
- */
-
-export {
-  buildQuickReplies,
-  insertMessage,
-  updateSessionMetadata,
-  endSession,
-  processPendingQuoteAction,
-  fetchSessionMessages,
-} from './flowHelpers';
-
-/**
- * Quote assistant and spec editor exports
+ * Flow helpers removed with the flow engine.
  */
 export {
   QUOTE_ASSISTANT_SYSTEM_PROMPT,

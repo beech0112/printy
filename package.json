@@ -21,12 +21,14 @@
     "archive:yearly": "node --env-file=.env.backup --experimental-strip-types scripts/archive/yearlyArchive.ts"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@netlify/functions": "^5.1.0",
     "@radix-ui/react-progress": "^1.1.8",
     "@supabase/auth-ui-react": "^0.4.7",
     "@supabase/auth-ui-shared": "^0.1.8",
     "@supabase/supabase-js": "^2.81.1",
     "clsx": "^2.1.1",
+    "cohere-ai": "^8.0.0",
     "dotenv": "^17.2.3",
     "heic2any": "^0.0.4",
     "lucide-react": "^0.554.0",

@@ -2,1124 +2,32 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Container, Text } from '@shared/components';
 import { MessageCircle, Printer, Users, Award } from 'lucide-react';
-import GuestChatPanel from '../components/chat/GuestChatPanel';
-import {
-  type ChatMessage,
-  type QuickReply,
-  type ChatRole,
-} from '@features/chat/types/chat';
-import { supabase } from '@lib/supabase';
-import type { FlowDefinition } from '@features/chat/types/flow';
+import { ChatWidget } from '@features/chat/components/ChatWidget';
+import { useChatPipeline } from '@features/chat/hooks/shared/useChatPipeline';
 
 const LandingPage: React.FC = () => {
   const navigate = useNavigate();
-  const [messages, setMessages] = React.useState<ChatMessage[]>([]);
-  const [isTyping, setIsTyping] = React.useState(false);
-  const [quickReplies, setQuickReplies] = React.useState<QuickReply[]>([]);
-  const [currentFlow, setCurrentFlow] = React.useState<FlowDefinition | null>(
-    null
-  );
-  const [currentNodeId, setCurrentNodeId] = React.useState<string>('');
-  const [chatTitle, setChatTitle] = React.useState<string>('Chat');
-  const [inputPlaceholder, setInputPlaceholder] =
-    React.useState('Type a message...');
   const [isChatOpen, setIsChatOpen] = React.useState(false);
+
+  const { messages, isTyping, send, greet, reset } = useChatPipeline({
+    userRole: 'guest',
+  });
+
   const scrollToChat = () => {
-    document.getElementById('chat-section')?.scrollIntoView({
-      behavior: 'smooth',
-    });
+    document.getElementById('chat-section')?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const initializeFlow = async (
-    flowKey: 'about' | 'faqs' | 'guest-services-offered'
-  ) => {
-    setIsTyping(true);
-    setMessages([]);
-    setQuickReplies([]);
-
-    try {
-      // Map flow keys to database flow IDs
-      const flowIdMap: Record<string, string> = {
-        about: 'guest-about-us',
-        faqs: 'guest-faqs',
-        'guest-services-offered': 'guest-services-offered',
-      };
-
-      const flowId = flowIdMap[flowKey];
-      if (!flowId) {
-        console.error('Unknown flow key:', flowKey);
-        setIsTyping(false);
-        return;
-      }
-
-      // Fetch flow definition from database
-      const { data: flowData, error } = await supabase
-        .from('chat_flows_v2')
-        .select('flow_definition')
-        .eq('flow_id', flowId)
-        .eq('flow_owner', 'guest')
-        .single();
-
-      if (error || !flowData) {
-        console.error('Error fetching flow:', error);
-        setIsTyping(false);
-        return;
-      }
-
-      const flowDefinition = flowData.flow_definition as FlowDefinition;
-      setCurrentFlow(flowDefinition);
-      setChatTitle(flowDefinition.title);
-      setCurrentNodeId(flowDefinition.initial_node);
-
-      // Process initial node
-      const initialNode = flowDefinition.nodes[flowDefinition.initial_node] as any;
-      console.log('[LandingPage] Initializing flow:', {
-        flowId,
-        flowKey,
-        initialNodeId: flowDefinition.initial_node,
-        initialNodeType: initialNode?.type,
-        initialNodeAction: initialNode?.action,
-      });
-
-      if (initialNode) {
-        if (initialNode.type === 'message') {
-          const botMessage: ChatMessage = {
-            id: crypto.randomUUID(),
-            role: 'printy',
-            text: initialNode.message as string,
-            ts: Date.now(),
-          };
-          setMessages([botMessage]);
-
-          // Set quick replies from initial node options
-          if (initialNode.options) {
-            const replies = initialNode.options.map((option: any, index: number) => ({
-              id: `qr-${index}`,
-              label: option.label,
-              value: option.label,
-            }));
-            setQuickReplies(replies);
-          }
-        } else if (
-          initialNode.type === 'action' &&
-          initialNode.action === 'display_service_categories'
-        ) {
-          console.log('[LandingPage] Handling display_service_categories action');
-          // Handle display_service_categories action for guest users
-          try {
-            // Fetch active service categories
-            const { data: categories, error } = await supabase
-              .from('service_categories')
-              .select('category_id, category_name, description')
-              .eq('is_active', true)
-              .order('display_order', { ascending: true });
-
-            if (error || !categories || categories.length === 0) {
-              const botMessage: ChatMessage = {
-                id: crypto.randomUUID(),
-                role: 'printy',
-                text: 'No service categories are available at the moment.',
-                ts: Date.now(),
-              };
-              setMessages([botMessage]);
-            } else {
-              // Add welcome message
-              const welcomeMessage: ChatMessage = {
-                id: crypto.randomUUID(),
-                role: 'printy',
-                text: "Hi! I'm Printy, B.J. Santiago's bot assistant. Here you can browse all our active printing services organized by category. What would you like to explore?",
-                ts: Date.now(),
-              };
-              setMessages([welcomeMessage]);
-
-              // Generate quick replies for categories
-              const replies = categories.map((category, index) => ({
-                id: `cat-${index}`,
-                label: category.category_name,
-                value: category.category_id,
-              }));
-
-              // Add End Chat option
-              replies.push({
-                id: 'end-chat',
-                label: 'End Chat',
-                value: 'end',
-              });
-
-              setQuickReplies(replies);
-            }
-          } catch (error) {
-            console.error('Error fetching categories:', error);
-            const botMessage: ChatMessage = {
-              id: crypto.randomUUID(),
-              role: 'printy',
-              text: 'Something went wrong while loading service categories. Please try again.',
-              ts: Date.now(),
-            };
-            setMessages([botMessage]);
-          }
-        } else if (
-          initialNode.type === 'action' &&
-          initialNode.action === 'display_about_sections_guest'
-        ) {
-          console.log('[LandingPage] Handling display_about_sections_guest action');
-          // Handle display_about_sections_guest action for guest users
-          try {
-            // Fetch all about sections (no is_active column - all are active)
-            const { data: sections, error } = await supabase
-              .from('about_bj_santiago')
-              .select('about_id, about_name, description')
-              .order('display_order', { ascending: true });
-
-            console.log('[LandingPage] Fetched about sections:', {
-              count: sections?.length || 0,
-              error: error?.message,
-            });
-
-            if (error || !sections || sections.length === 0) {
-              const botMessage: ChatMessage = {
-                id: crypto.randomUUID(),
-                role: 'printy',
-                text: 'No About Us information is available at the moment.',
-                ts: Date.now(),
-              };
-              setMessages([botMessage]);
-            } else {
-              // Add welcome message
-              const welcomeMessage: ChatMessage = {
-                id: crypto.randomUUID(),
-                role: 'printy',
-                text: "Hi! I'm Printy, B.J. Santiago's bot assistant. What would you like to know about our company?",
-                ts: Date.now(),
-              };
-              setMessages([welcomeMessage]);
-
-              // Generate quick replies for sections
-              const replies = sections.map((section, index) => ({
-                id: `about-${index}`,
-                label: section.about_name,
-                value: `${section.about_id}|${section.about_name}`,
-              }));
-
-              // Add End Chat option
-              replies.push({
-                id: 'end-chat',
-                label: 'End Chat',
-                value: 'end',
-              });
-
-              console.log('[LandingPage] Generated quick replies:', replies.length);
-              setQuickReplies(replies);
-            }
-          } catch (error) {
-            console.error('[LandingPage] Error fetching about sections:', error);
-            const botMessage: ChatMessage = {
-              id: crypto.randomUUID(),
-              role: 'printy',
-              text: 'Something went wrong while loading our About Us information. Please try again.',
-              ts: Date.now(),
-            };
-            setMessages([botMessage]);
-          }
-        } else if (
-          initialNode.type === 'action' &&
-          initialNode.action === 'display_faqs_guest'
-        ) {
-          console.log('[LandingPage] Handling display_faqs_guest action');
-          // Handle display_faqs_guest action for guest users
-          try {
-            // Fetch all FAQs (no is_active column - all are active)
-            const { data: faqs, error } = await supabase
-              .from('company_faqs')
-              .select('faq_id, question, answer')
-              .order('display_order', { ascending: true });
-
-            console.log('[LandingPage] Fetched FAQs:', {
-              count: faqs?.length || 0,
-              error: error?.message,
-            });
-
-            if (error || !faqs || faqs.length === 0) {
-              const botMessage: ChatMessage = {
-                id: crypto.randomUUID(),
-                role: 'printy',
-                text: 'No FAQs are available at the moment.',
-                ts: Date.now(),
-              };
-              setMessages([botMessage]);
-            } else {
-              // Add welcome message
-              const welcomeMessage: ChatMessage = {
-                id: crypto.randomUUID(),
-                role: 'printy',
-                text: "Hi! I'm Printy, B.J. Santiago's bot assistant. Here are some frequently asked questions. What would you like to know?",
-                ts: Date.now(),
-              };
-              setMessages([welcomeMessage]);
-
-              // Generate quick replies for FAQs
-              const replies = faqs.map((faq, index) => ({
-                id: `faq-${index}`,
-                label: faq.question,
-                value: `${faq.faq_id}|${faq.question}`,
-              }));
-
-              // Add End Chat option
-              replies.push({
-                id: 'end-chat',
-                label: 'End Chat',
-                value: 'end',
-              });
-
-              console.log('[LandingPage] Generated quick replies:', replies.length);
-              setQuickReplies(replies);
-            }
-          } catch (error) {
-            console.error('[LandingPage] Error fetching FAQs:', error);
-            const botMessage: ChatMessage = {
-              id: crypto.randomUUID(),
-              role: 'printy',
-              text: 'Something went wrong while loading FAQs. Please try again.',
-              ts: Date.now(),
-            };
-            setMessages([botMessage]);
-          }
-        } else {
-          console.warn('[LandingPage] Unhandled initial node:', {
-            type: initialNode.type,
-            action: initialNode.action,
-          });
-        }
-      } else {
-        console.error('[LandingPage] Initial node not found:', flowDefinition.initial_node);
-      }
-
-      setIsChatOpen(true);
-      setInputPlaceholder('Type a message...');
-      setIsTyping(false);
-      document
-        .getElementById('chat-section')
-        ?.scrollIntoView({ behavior: 'smooth' });
-    } catch (error) {
-      console.error('Error initializing flow:', error);
-      setIsTyping(false);
-    }
-  };
-
-  // Action handler: display_about_content_guest
-  const handleDisplayAboutContentGuest = async (aboutId: string) => {
-    console.log('[LandingPage] display_about_content_guest called with aboutId:', aboutId);
-    
-    try {
-      // Fetch about section details
-      const { data: section, error } = await supabase
-        .from('about_bj_santiago')
-        .select('about_name, description')
-        .eq('about_id', aboutId)
-        .single();
-
-      if (error || !section) {
-        const botMessage: ChatMessage = {
-          id: crypto.randomUUID(),
-          role: 'printy',
-          text: 'Section not found. Please try again.',
-          ts: Date.now(),
-        };
-        setMessages(prev => [...prev, botMessage]);
-      } else {
-        // Display section content (without repeating section name)
-        const botMessage: ChatMessage = {
-          id: crypto.randomUUID(),
-          role: 'printy',
-          text: section.description,
-          ts: Date.now(),
-        };
-        setMessages(prev => [...prev, botMessage]);
-
-        // Fetch all sections for navigation
-        const { data: allSections } = await supabase
-          .from('about_bj_santiago')
-          .select('about_id, about_name')
-          .order('display_order', { ascending: true });
-
-        if (allSections) {
-          // Generate navigation quick replies (exclude current section)
-          const replies = allSections
-            .filter(section => section.about_id !== aboutId)
-            .map((section, index) => ({
-              id: `about-${index}`,
-              label: section.about_name,
-              value: `${section.about_id}|${section.about_name}`,
-            }));
-
-          // Add End Chat option
-          replies.push({
-            id: 'end-chat',
-            label: 'End Chat',
-            value: 'end',
-          });
-
-          setQuickReplies(replies);
-        }
-      }
-    } catch (error) {
-      console.error('[LandingPage] Error in display_about_content_guest:', error);
-      const botMessage: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: 'printy',
-        text: 'Something went wrong while loading the section content. Please try again.',
-        ts: Date.now(),
-      };
-      setMessages(prev => [...prev, botMessage]);
-    }
-  };
-
-  // Action handler: display_faq_answer_guest
-  const handleDisplayFaqAnswerGuest = async (faqId: string) => {
-    console.log('[LandingPage] display_faq_answer_guest called with faqId:', faqId);
-    
-    try {
-      // Fetch FAQ details
-      const { data: faq, error } = await supabase
-        .from('company_faqs')
-        .select('question, answer')
-        .eq('faq_id', faqId)
-        .single();
-
-      if (error || !faq) {
-        const botMessage: ChatMessage = {
-          id: crypto.randomUUID(),
-          role: 'printy',
-          text: 'FAQ not found. Please try again.',
-          ts: Date.now(),
-        };
-        setMessages(prev => [...prev, botMessage]);
-      } else {
-        // Display FAQ answer
-        const botMessage: ChatMessage = {
-          id: crypto.randomUUID(),
-          role: 'printy',
-          text: faq.answer,
-          ts: Date.now(),
-        };
-        setMessages(prev => [...prev, botMessage]);
-
-        // Fetch all FAQs for navigation
-        const { data: allFaqs } = await supabase
-          .from('company_faqs')
-          .select('faq_id, question')
-          .order('display_order', { ascending: true });
-
-        if (allFaqs) {
-          // Generate navigation quick replies (exclude current FAQ)
-          const replies = allFaqs
-            .filter(faq => faq.faq_id !== faqId)
-            .map((faq, index) => ({
-              id: `faq-${index}`,
-              label: faq.question,
-              value: `${faq.faq_id}|${faq.question}`,
-            }));
-
-          // Add End Chat option
-          replies.push({
-            id: 'end-chat',
-            label: 'End Chat',
-            value: 'end',
-          });
-
-          setQuickReplies(replies);
-        }
-      }
-    } catch (error) {
-      console.error('[LandingPage] Error in display_faq_answer_guest:', error);
-      const botMessage: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: 'printy',
-        text: 'Something went wrong while loading the FAQ answer. Please try again.',
-        ts: Date.now(),
-      };
-      setMessages(prev => [...prev, botMessage]);
-    }
-  };
-
-  const handleSend = async (text: string) => {
-    if (!currentFlow || !currentNodeId) return;
-
-    console.log('[LandingPage] handleSend called with:', {
-      text,
-      currentNodeId,
-      hasQuickReplies: quickReplies.length > 0,
-    });
-
-    // Extract display label if text contains pipe (format: "uuid|label")
-    let displayText = text;
-    if (text.includes('|')) {
-      const parts = text.split('|');
-      displayText = parts[1] || parts[0]; // Use label part, fallback to full text
-    }
-
-    const userMessage: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      text: displayText, // Display the label part, not the UUID
-      ts: Date.now(),
-    };
-
-    setMessages(prev => [...prev, userMessage]);
-    setIsTyping(true);
-
-    // Store quickReplies before clearing
-    const previousQuickReplies = [...quickReplies];
-    setQuickReplies([]);
-
-    try {
-      const currentNode = currentFlow.nodes[currentNodeId];
-      
-      // Check if current node is an action node
-      if (currentNode && currentNode.type === 'action') {
-        const actionName = (currentNode as any).action;
-        console.log('[LandingPage] Current node is action:', actionName, 'currentNodeId:', currentNodeId);
-
-        // Handle display_about_sections_guest action - advance to about_dynamic when section selected
-        if (actionName === 'display_about_sections_guest' && text.includes('|') && text !== 'end') {
-          const aboutId = text.split('|')[0].trim();
-          console.log('[LandingPage] Section selected from welcome, advancing to about_dynamic with aboutId:', aboutId);
-          
-          // Advance to about_dynamic node
-          if (currentFlow.nodes['about_dynamic']) {
-            setCurrentNodeId('about_dynamic');
-            // Execute the action handler
-            await handleDisplayAboutContentGuest(aboutId);
-            setIsTyping(false);
-            return;
-          } else {
-            console.warn('[LandingPage] about_dynamic node not found in flow definition');
-          }
-        }
-
-        // Handle display_faqs_guest action - advance to faq_dynamic when FAQ selected
-        if (actionName === 'display_faqs_guest' && text.includes('|') && text !== 'end') {
-          const faqId = text.split('|')[0].trim();
-          console.log('[LandingPage] FAQ selected from welcome, advancing to faq_dynamic with faqId:', faqId);
-          
-          // Advance to faq_dynamic node
-          if (currentFlow.nodes['faq_dynamic']) {
-            setCurrentNodeId('faq_dynamic');
-            // Execute the action handler
-            await handleDisplayFaqAnswerGuest(faqId);
-            setIsTyping(false);
-            return;
-          } else {
-            console.warn('[LandingPage] faq_dynamic node not found in flow definition');
-          }
-        }
-
-        // Handle display_about_content_guest action
-        if (actionName === 'display_about_content_guest') {
-          if (text.includes('|')) {
-            const aboutId = text.split('|')[0].trim();
-            await handleDisplayAboutContentGuest(aboutId);
-          } else {
-            // Try to find aboutId from previous quick replies
-            const selectedAbout = previousQuickReplies.find(
-              qr => qr.value.includes('|') && qr.label.toLowerCase() === text.toLowerCase()
-            );
-            if (selectedAbout && selectedAbout.value.includes('|')) {
-              const aboutId = selectedAbout.value.split('|')[0].trim();
-              await handleDisplayAboutContentGuest(aboutId);
-            } else {
-              const botMessage: ChatMessage = {
-                id: crypto.randomUUID(),
-                role: 'printy',
-                text: 'No section selected. Please try again.',
-                ts: Date.now(),
-              };
-              setMessages(prev => [...prev, botMessage]);
-            }
-          }
-          
-          // Stay on same node (about_dynamic) for navigation between sections
-          setIsTyping(false);
-          return;
-        }
-
-        // Handle display_faq_answer_guest action
-        if (actionName === 'display_faq_answer_guest') {
-          if (text.includes('|')) {
-            const faqId = text.split('|')[0].trim();
-            await handleDisplayFaqAnswerGuest(faqId);
-          } else {
-            // Try to find faqId from previous quick replies
-            const selectedFaq = previousQuickReplies.find(
-              qr => qr.value.includes('|') && qr.label.toLowerCase() === text.toLowerCase()
-            );
-            if (selectedFaq && selectedFaq.value.includes('|')) {
-              const faqId = selectedFaq.value.split('|')[0].trim();
-              await handleDisplayFaqAnswerGuest(faqId);
-            } else {
-              const botMessage: ChatMessage = {
-                id: crypto.randomUUID(),
-                role: 'printy',
-                text: 'No FAQ selected. Please try again.',
-                ts: Date.now(),
-              };
-              setMessages(prev => [...prev, botMessage]);
-            }
-          }
-          
-          // Stay on same node (faq_dynamic) for navigation between FAQs
-          setIsTyping(false);
-          return;
-        }
-      }
-
-      // Detect which flow we're in based on quick reply IDs
-      const isServicesFlow =
-        previousQuickReplies.length > 0 &&
-        previousQuickReplies.some(qr => qr.id?.startsWith('cat-')) &&
-        !previousQuickReplies.some(qr => qr.id?.startsWith('qr-'));
-
-      const isAboutFlow =
-        previousQuickReplies.length > 0 &&
-        previousQuickReplies.some(qr => qr.id?.startsWith('about-'));
-
-      const isFaqFlow =
-        previousQuickReplies.length > 0 &&
-        previousQuickReplies.some(qr => qr.id?.startsWith('faq-'));
-
-      if (isServicesFlow) {
-        // Handle End Chat option
-        if (text.trim().toLowerCase() === 'end chat') {
-          const endNode = currentFlow.nodes['end'];
-          if (endNode && endNode.type === 'end') {
-            const endMessage: ChatMessage = {
-              id: crypto.randomUUID(),
-              role: 'printy',
-              text: endNode.message as string,
-              ts: Date.now(),
-            };
-            setMessages(prev => [...prev, endMessage]);
-            setQuickReplies([]);
-          }
-          return;
-        }
-
-        // This is a category selection from the services flow
-        // Find the matching category by label (case-insensitive, partial match)
-        const normalizedText = text.trim().toLowerCase();
-        let selectedCategory = previousQuickReplies.find(
-          qr => qr.label.toLowerCase() === normalizedText
-        );
-
-        // If no exact match, try to find by checking if any category label contains the input
-        if (!selectedCategory) {
-          selectedCategory = previousQuickReplies.find(
-            qr =>
-              qr.label.toLowerCase().includes(normalizedText) &&
-              qr.value !== 'end'
-          );
-        }
-
-        if (selectedCategory && selectedCategory.value !== 'end') {
-          // Fetch services for this category
-          try {
-            const { data: services, error } = await supabase
-              .from('printing_services')
-              .select('service_name, description')
-              .eq('category_id', selectedCategory.value)
-              .eq('status', 'active');
-
-            if (error || !services || services.length === 0) {
-              const botMessage: ChatMessage = {
-                id: crypto.randomUUID(),
-                role: 'printy',
-                text: `No active services found in the ${selectedCategory.label} category.`,
-                ts: Date.now(),
-              };
-              setMessages(prev => [...prev, botMessage]);
-
-              // Show category options again
-              const { data: categories } = await supabase
-                .from('service_categories')
-                .select('category_id, category_name')
-                .eq('is_active', true)
-                .order('display_order', { ascending: true });
-
-              if (categories) {
-                const replies = categories.map((cat, idx) => ({
-                  id: `cat-${idx}`,
-                  label: cat.category_name,
-                  value: cat.category_id,
-                }));
-
-                // Add End Chat option
-                replies.push({
-                  id: 'end-chat',
-                  label: 'End Chat',
-                  value: 'end',
-                });
-
-                setQuickReplies(replies);
-              }
-            } else {
-              // Display services
-              const servicesText = services
-                .map(
-                  s =>
-                    `• ${s.service_name}${s.description ? ` - ${s.description}` : ''}`
-                )
-                .join('\n');
-
-              const botMessage: ChatMessage = {
-                id: crypto.randomUUID(),
-                role: 'printy',
-                text: `Here are our ${selectedCategory.label} services:\n\n${servicesText}`,
-                ts: Date.now(),
-              };
-              setMessages(prev => [...prev, botMessage]);
-
-              // Show category options again so user can browse more
-              const { data: categories } = await supabase
-                .from('service_categories')
-                .select('category_id, category_name')
-                .eq('is_active', true)
-                .order('display_order', { ascending: true });
-
-              if (categories) {
-                const replies = categories.map((cat, idx) => ({
-                  id: `cat-${idx}`,
-                  label: cat.category_name,
-                  value: cat.category_id,
-                }));
-
-                // Add End Chat option
-                replies.push({
-                  id: 'end-chat',
-                  label: 'End Chat',
-                  value: 'end',
-                });
-
-                setQuickReplies(replies);
-              }
-            }
-          } catch (error) {
-            console.error('Error fetching services:', error);
-          }
-      }
-      // Handle About flow
-      else if (isAboutFlow) {
-        // Handle End Chat option
-        if (text.trim().toLowerCase() === 'end chat') {
-          const endMessage: ChatMessage = {
-            id: crypto.randomUUID(),
-            role: 'printy',
-            text: 'Thank you for learning about B.J. Santiago Inc.! We look forward to serving your printing needs. Have a great day!',
-            ts: Date.now(),
-          };
-          setMessages(prev => [...prev, endMessage]);
-          setQuickReplies([]);
-          return;
-        }
-
-        // Find the matching About section by value (uuid|label) or label
-        const normalizedText = text.trim().toLowerCase();
-        let selectedAbout = previousQuickReplies.find(
-          qr =>
-            qr.value.toLowerCase() === normalizedText || // Match by full value
-            qr.label.toLowerCase() === normalizedText || // Match by label
-            (qr.value.includes('|') &&
-              qr.value.toLowerCase().endsWith(`|${normalizedText}`)) // Match by label in value
-        );
-
-        // If no exact match and text contains pipe, try to match by UUID part
-        if (!selectedAbout && text.includes('|')) {
-          const textUuid = text.split('|')[0].trim();
-          selectedAbout = previousQuickReplies.find(
-            qr =>
-              qr.value.includes('|') &&
-              qr.value.split('|')[0].trim() === textUuid &&
-              qr.value !== 'end'
-          );
-        }
-
-        // If still no match, try to find by checking if any section label contains the input
-        if (!selectedAbout) {
-          selectedAbout = previousQuickReplies.find(
-            qr =>
-              qr.label.toLowerCase().includes(normalizedText) &&
-              qr.value !== 'end'
-          );
-        }
-
-        console.log('[LandingPage] About flow - selectedAbout:', {
-          found: !!selectedAbout,
-          value: selectedAbout?.value,
-          label: selectedAbout?.label,
-          input: text,
-        });
-
-        if (selectedAbout && selectedAbout.value !== 'end' && selectedAbout.value.includes('|')) {
-          // Extract about_id from value
-          const aboutId = selectedAbout.value.split('|')[0];
-          
-          // Advance to about_dynamic node (action node that displays content)
-          if (currentFlow.nodes['about_dynamic']) {
-            setCurrentNodeId('about_dynamic');
-            // Use the action handler
-            await handleDisplayAboutContentGuest(aboutId);
-            setIsTyping(false);
-            return;
-          }
-          
-          // Fallback to inline handling if node doesn't exist yet
-          try {
-            // Fetch about section details
-            const { data: section, error } = await supabase
-              .from('about_bj_santiago')
-              .select('about_name, description')
-              .eq('about_id', aboutId)
-              .single();
-
-            if (error || !section) {
-              const botMessage: ChatMessage = {
-                id: crypto.randomUUID(),
-                role: 'printy',
-                text: 'Section not found. Please try again.',
-                ts: Date.now(),
-              };
-              setMessages(prev => [...prev, botMessage]);
-            } else {
-              // Display section content (without repeating section name)
-              const botMessage: ChatMessage = {
-                id: crypto.randomUUID(),
-                role: 'printy',
-                text: section.description,
-                ts: Date.now(),
-              };
-              setMessages(prev => [...prev, botMessage]);
-
-              // Fetch all sections for navigation
-              const { data: allSections } = await supabase
-                .from('about_bj_santiago')
-                .select('about_id, about_name')
-                .order('display_order', { ascending: true });
-
-              if (allSections) {
-                // Generate navigation quick replies (exclude current section)
-                const replies = allSections
-                  .filter(section => section.about_id !== aboutId)
-                  .map((section, index) => ({
-                    id: `about-${index}`,
-                    label: section.about_name,
-                    value: `${section.about_id}|${section.about_name}`,
-                  }));
-
-                // Add End Chat option
-                replies.push({
-                  id: 'end-chat',
-                  label: 'End Chat',
-                  value: 'end',
-                });
-
-                setQuickReplies(replies);
-              }
-            }
-          } catch (error) {
-            console.error('Error fetching about section:', error);
-            const botMessage: ChatMessage = {
-              id: crypto.randomUUID(),
-              role: 'printy',
-              text: 'Something went wrong while loading the section content. Please try again.',
-              ts: Date.now(),
-            };
-            setMessages(prev => [...prev, botMessage]);
-          }
-        } else {
-          // Invalid selection, show options again
-          const { data: allSections } = await supabase
-            .from('about_bj_santiago')
-            .select('about_id, about_name')
-            .order('display_order', { ascending: true });
-
-          if (allSections) {
-            const replies = allSections.map((section, index) => ({
-              id: `about-${index}`,
-              label: section.about_name,
-              value: `${section.about_id}|${section.about_name}`,
-            }));
-
-            replies.push({
-              id: 'end-chat',
-              label: 'End Chat',
-              value: 'end',
-            });
-
-            setQuickReplies(replies);
-          }
-        }
-      }
-      // Handle FAQ flow
-      else if (isFaqFlow) {
-        // Handle End Chat option
-        if (text.trim().toLowerCase() === 'end chat') {
-          const endMessage: ChatMessage = {
-            id: crypto.randomUUID(),
-            role: 'printy',
-            text: 'Thank you for your questions! We hope we have been helpful. Feel free to reach out anytime for more information about B.J. Santiago Inc. Have a great day!',
-            ts: Date.now(),
-          };
-          setMessages(prev => [...prev, endMessage]);
-          setQuickReplies([]);
-          return;
-        }
-
-        // Find the matching FAQ by value (uuid|question) or label
-        const normalizedText = text.trim().toLowerCase();
-        let selectedFaq = previousQuickReplies.find(
-          qr =>
-            qr.value.toLowerCase() === normalizedText || // Match by full value
-            qr.label.toLowerCase() === normalizedText || // Match by label
-            (qr.value.includes('|') &&
-              qr.value.toLowerCase().endsWith(`|${normalizedText}`)) // Match by label in value
-        );
-
-        // If no exact match and text contains pipe, try to match by UUID part
-        if (!selectedFaq && text.includes('|')) {
-          const textUuid = text.split('|')[0].trim();
-          selectedFaq = previousQuickReplies.find(
-            qr =>
-              qr.value.includes('|') &&
-              qr.value.split('|')[0].trim() === textUuid &&
-              qr.value !== 'end'
-          );
-        }
-
-        // If still no match, try to find by checking if any FAQ label contains the input
-        if (!selectedFaq) {
-          selectedFaq = previousQuickReplies.find(
-            qr =>
-              qr.label.toLowerCase().includes(normalizedText) &&
-              qr.value !== 'end'
-          );
-        }
-
-        console.log('[LandingPage] FAQ flow - selectedFaq:', {
-          found: !!selectedFaq,
-          value: selectedFaq?.value,
-          label: selectedFaq?.label,
-          input: text,
-        });
-
-        if (selectedFaq && selectedFaq.value !== 'end' && selectedFaq.value.includes('|')) {
-          // Extract faq_id from value
-          const faqId = selectedFaq.value.split('|')[0];
-          
-          // Advance to faq_dynamic node (action node that displays answer)
-          if (currentFlow.nodes['faq_dynamic']) {
-            setCurrentNodeId('faq_dynamic');
-            // Use the action handler
-            await handleDisplayFaqAnswerGuest(faqId);
-            setIsTyping(false);
-            return;
-          }
-          
-          // Fallback to inline handling if node doesn't exist yet
-          try {
-            // Fetch FAQ details
-            const { data: faq, error } = await supabase
-              .from('company_faqs')
-              .select('question, answer')
-              .eq('faq_id', faqId)
-              .single();
-
-            if (error || !faq) {
-              const botMessage: ChatMessage = {
-                id: crypto.randomUUID(),
-                role: 'printy',
-                text: 'FAQ not found. Please try again.',
-                ts: Date.now(),
-              };
-              setMessages(prev => [...prev, botMessage]);
-            } else {
-              // Display FAQ answer
-              const botMessage: ChatMessage = {
-                id: crypto.randomUUID(),
-                role: 'printy',
-                text: faq.answer,
-                ts: Date.now(),
-              };
-              setMessages(prev => [...prev, botMessage]);
-
-              // Fetch all FAQs for navigation
-              const { data: allFaqs } = await supabase
-                .from('company_faqs')
-                .select('faq_id, question')
-                .order('display_order', { ascending: true });
-
-              if (allFaqs) {
-                // Generate navigation quick replies (exclude current FAQ)
-                const replies = allFaqs
-                  .filter(faq => faq.faq_id !== faqId)
-                  .map((faq, index) => ({
-                    id: `faq-${index}`,
-                    label: faq.question,
-                    value: `${faq.faq_id}|${faq.question}`,
-                  }));
-
-                // Add End Chat option
-                replies.push({
-                  id: 'end-chat',
-                  label: 'End Chat',
-                  value: 'end',
-                });
-
-                setQuickReplies(replies);
-              }
-            }
-          } catch (error) {
-            console.error('Error fetching FAQ:', error);
-            const botMessage: ChatMessage = {
-              id: crypto.randomUUID(),
-              role: 'printy',
-              text: 'Something went wrong while loading the FAQ. Please try again.',
-              ts: Date.now(),
-            };
-            setMessages(prev => [...prev, botMessage]);
-          }
-        } else {
-          // Invalid selection, show options again
-          const { data: allFaqs } = await supabase
-            .from('company_faqs')
-            .select('faq_id, question')
-            .order('display_order', { ascending: true });
-
-          if (allFaqs) {
-            const replies = allFaqs.map((faq, index) => ({
-              id: `faq-${index}`,
-              label: faq.question,
-              value: `${faq.faq_id}|${faq.question}`,
-            }));
-
-            replies.push({
-              id: 'end-chat',
-              label: 'End Chat',
-              value: 'end',
-            });
-
-            setQuickReplies(replies);
-          }
-        }
-      }
-      // Handle regular message node flow
-      else if (
-        currentNode &&
-        currentNode.type === 'message' &&
-        currentNode.options
-      ) {
-        const selectedOption = currentNode.options.find(
-          option => option.label.toLowerCase() === text.trim().toLowerCase()
-        );
-
-        if (selectedOption) {
-          const nextNodeId = selectedOption.next;
-          if (nextNodeId) {
-            setCurrentNodeId(nextNodeId);
-            const nextNode = currentFlow.nodes[nextNodeId];
-
-            if (nextNode) {
-              if (nextNode.type === 'message') {
-                const botMessage: ChatMessage = {
-                  id: crypto.randomUUID(),
-                  role: 'printy',
-                  text: nextNode.message as string,
-                  ts: Date.now(),
-                };
-                setMessages(prev => [...prev, botMessage]);
-
-                if (nextNode.options) {
-                  const replies = nextNode.options.map((option, index) => ({
-                    id: `qr-${index}`,
-                    label: option.label,
-                    value: option.label,
-                  }));
-                  setQuickReplies(replies);
-                }
-              } else if (nextNode.type === 'end') {
-                const endMessage: ChatMessage = {
-                  id: crypto.randomUUID(),
-                  role: 'printy',
-                  text: nextNode.message as string,
-                  ts: Date.now(),
-                };
-                setMessages(prev => [...prev, endMessage]);
-                setQuickReplies([]);
-              }
-            }
-          }
-        } else {
-          const errorMessage: ChatMessage = {
-            id: crypto.randomUUID(),
-            role: 'printy',
-            text: 'Please choose one of the available options.',
-            ts: Date.now(),
-          };
-          setMessages(prev => [...prev, errorMessage]);
-
-          if (currentNode.options) {
-            const replies = currentNode.options.map((option, index) => ({
-              id: `qr-${index}`,
-              label: option.label,
-              value: option.label,
-            }));
-            setQuickReplies(replies);
-          }
-        }
-      }
-    }
-
-    setIsTyping(false);
-  } catch (error) {
-    console.error('Error processing message:', error);
-    setIsTyping(false);
-  }
-  };
-
-  const handleQuickReply = (
-    value: string | { value: string; label: string }
-  ) => {
-    // Handle both string and object formats
-    const data = typeof value === 'string' ? { value, label: value } : value;
-    console.log('[LandingPage] Quick reply clicked:', {
-      value: data.value,
-      label: data.label,
-    });
-    // Use the value for routing (contains UUID|label) and label for display
-    // Pass the value so handleSend can extract UUID and match properly
-    handleSend(data.value);
+  const openChat = () => {
+    reset();
+    setIsChatOpen(true);
+    document.getElementById('chat-section')?.scrollIntoView({ behavior: 'smooth' });
+    // Greet after reset clears greetedRef — setTimeout lets state flush first
+    setTimeout(() => greet(), 0);
   };
 
   const handleEndChat = () => {
-    // Show closing message, remove quick replies immediately
-    setQuickReplies([]);
-    setIsTyping(false);
-    setMessages(prev => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        role: 'printy' as ChatRole,
-        text: 'Thank you for chatting with Printy! Have a great day.',
-        ts: Date.now(),
-      },
-    ]);
-    // Close panel and reset state after 3 seconds
-    setTimeout(() => {
-      setIsChatOpen(false);
-      setMessages([]);
-      setCurrentFlow(null);
-      setCurrentNodeId('');
-      setChatTitle('Chat');
-      setInputPlaceholder('Type a message...');
-    }, 3000);
+    setIsChatOpen(false);
+    reset();
   };
 
   return (
@@ -1134,12 +42,7 @@ const LandingPage: React.FC = () => {
                 <Printer className="w-6 h-6 text-white" />
               </div>
               <div>
-                <Text
-                  variant="h3"
-                  size="lg"
-                  weight="bold"
-                  className="text-brand-primary"
-                >
+                <Text variant="h3" size="lg" weight="bold" className="text-brand-primary">
                   Printy
                 </Text>
                 <Text variant="p" size="xs" color="muted">
@@ -1150,20 +53,10 @@ const LandingPage: React.FC = () => {
 
             {/* Navigation */}
             <div className="flex items-center space-x-4">
-              <Button
-                variant="ghost"
-                size="sm"
-                threeD
-                onClick={() => navigate('/auth/signin')}
-              >
+              <Button variant="ghost" size="sm" threeD onClick={() => navigate('/auth/signin')}>
                 Sign In
               </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                threeD
-                onClick={() => navigate('/auth/signup')}
-              >
+              <Button variant="primary" size="sm" threeD onClick={() => navigate('/auth/signup')}>
                 Sign Up
               </Button>
             </div>
@@ -1190,11 +83,10 @@ const LandingPage: React.FC = () => {
                 color="muted"
                 className="leading-relaxed max-w-3xl mx-auto text-center"
               >
-                For over 33 years, B.J. Santiago Inc. has delivered trusted
-                printing solutions to businesses across the Philippines. Now,
-                with Printy, our prompt-based chatbot assistant, we're making it
-                easier than ever to browse services, place orders, track print
-                jobs, and get instant support — all in one chat.
+                For over 33 years, B.J. Santiago Inc. has delivered trusted printing solutions
+                to businesses across the Philippines. Now, with Printy, our AI-powered chatbot
+                assistant, we're making it easier than ever to browse services, place orders,
+                track print jobs, and get instant support — all in one chat.
               </Text>
             </div>
 
@@ -1209,7 +101,7 @@ const LandingPage: React.FC = () => {
                 Try out Printy
               </Button>
               <Text variant="p" size="lg" color="muted" className="text-center">
-                Experience our new chatbot assistant today
+                Experience our AI chatbot assistant today
               </Text>
             </div>
           </div>
@@ -1224,17 +116,11 @@ const LandingPage: React.FC = () => {
               <div className="w-16 h-16 bg-brand-primary-100 rounded-full flex items-center justify-center mx-auto">
                 <Printer className="w-8 h-8 text-brand-primary" />
               </div>
-              <Text
-                variant="h3"
-                size="xl"
-                weight="semibold"
-                className="text-center"
-              >
+              <Text variant="h3" size="xl" weight="semibold" className="text-center">
                 Professional Printing
               </Text>
               <Text variant="p" color="muted">
-                Offset, digital, and large format printing with 33+ years of
-                expertise
+                Offset, digital, and large format printing with 33+ years of expertise
               </Text>
             </div>
 
@@ -1242,16 +128,11 @@ const LandingPage: React.FC = () => {
               <div className="w-16 h-16 bg-brand-accent-100 rounded-full flex items-center justify-center mx-auto">
                 <MessageCircle className="w-8 h-8 text-brand-accent" />
               </div>
-              <Text
-                variant="h3"
-                size="xl"
-                weight="semibold"
-                className="text-center"
-              >
-                Prompt-Based Support
+              <Text variant="h3" size="xl" weight="semibold" className="text-center">
+                AI-Powered Support
               </Text>
               <Text variant="p" color="muted">
-                Instant assistance through our prompt-based chatbot system
+                Instant assistance through our AI chatbot — ask anything, anytime
               </Text>
             </div>
 
@@ -1259,12 +140,7 @@ const LandingPage: React.FC = () => {
               <div className="w-16 h-16 bg-success-100 rounded-full flex items-center justify-center mx-auto">
                 <Award className="w-8 h-8 text-success" />
               </div>
-              <Text
-                variant="h3"
-                size="xl"
-                weight="semibold"
-                className="text-center"
-              >
+              <Text variant="h3" size="xl" weight="semibold" className="text-center">
                 Trusted Quality
               </Text>
               <Text variant="p" color="muted">
@@ -1289,10 +165,10 @@ const LandingPage: React.FC = () => {
                 weight="bold"
                 className="text-brand-primary text-center"
               >
-                Hi there! I'm Printy, your chatbot assistant!
+                Hi there! I'm Printy, your AI assistant!
               </Text>
               <Text variant="p" size="lg" color="muted" className="text-center">
-                Choose a topic and chat right here.
+                Ask me anything about our services, or pick a topic below.
               </Text>
             </div>
 
@@ -1302,35 +178,37 @@ const LandingPage: React.FC = () => {
                   title="About B.J. Santiago Inc."
                   description="Learn about our company history and values"
                   icon={<Users className="w-6 h-6" />}
-                  onClick={() => initializeFlow('about')}
+                  onClick={() => {
+                    openChat();
+                  }}
                 />
-
                 <ActionCard
                   title="FAQs"
                   description="Find answers to common questions"
                   icon={<MessageCircle className="w-6 h-6" />}
-                  onClick={() => initializeFlow('faqs')}
+                  onClick={() => {
+                    openChat();
+                  }}
                 />
-
                 <ActionCard
                   title="Services Offered"
                   description="Explore our printing solutions"
                   icon={<Award className="w-6 h-6" />}
-                  onClick={() => initializeFlow('guest-services-offered')}
+                  onClick={() => {
+                    openChat();
+                  }}
                 />
               </div>
             ) : (
-              <div className="mt-8">
-                <GuestChatPanel
-                  title={chatTitle}
+              <div className="mt-8 h-[600px] rounded-2xl overflow-hidden shadow-xl border border-neutral-200">
+                <ChatWidget
+                  mode="panel"
                   messages={messages}
-                  onSend={handleSend}
+                  onSend={send}
+                  userRole="guest"
+                  title="Chat with Printy"
                   isTyping={isTyping}
-                  quickReplies={quickReplies}
-                  onQuickReply={handleQuickReply}
-                  inputPlaceholder={inputPlaceholder}
-                  onEndChat={handleEndChat}
-                  showAttach={false}
+                  onClose={handleEndChat}
                 />
               </div>
             )}
@@ -1366,12 +244,7 @@ interface ActionCardProps {
   onClick?: () => void;
 }
 
-const ActionCard: React.FC<ActionCardProps> = ({
-  title,
-  description,
-  icon,
-  onClick,
-}) => (
+const ActionCard: React.FC<ActionCardProps> = ({ title, description, icon, onClick }) => (
   <div
     onClick={onClick}
     className="group bg-white rounded-xl p-6 shadow-sm hover:shadow-lg transition-all duration-300 cursor-pointer border border-neutral-200 hover:border-brand-primary/20 hover:-translate-y-1"
@@ -1380,16 +253,11 @@ const ActionCard: React.FC<ActionCardProps> = ({
       <div className="w-12 h-12 bg-brand-primary-100 rounded-lg flex items-center justify-center group-hover:bg-brand-primary group-hover:text-white transition-colors">
         {icon}
       </div>
-      <div className="flex-1">
-        <Text
-          variant="h4"
-          size="lg"
-          weight="semibold"
-          className="group-hover:text-brand-primary transition-colors"
-        >
+      <div>
+        <Text variant="h3" size="base" weight="semibold">
           {title}
         </Text>
-        <Text variant="p" size="sm" color="muted" className="mt-1">
+        <Text variant="p" size="sm" color="muted">
           {description}
         </Text>
       </div>
