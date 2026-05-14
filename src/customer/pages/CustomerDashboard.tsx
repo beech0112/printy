@@ -22,6 +22,15 @@ import { useDeviceUtils } from '@shared/hooks/ui';
 
 // ─── Inner Component ──────────────────────────────────────────────────────────
 
+const TOPIC_MESSAGES: Record<string, string> = {
+  servicesOffered: 'What services do you offer?',
+  askQuote: 'I want to request a quote.',
+  placeOrder: 'I want to place an order.',
+  issueTicket: 'I need help with an issue.',
+  aboutUs: 'Tell me about B.J. Santiago.',
+  faqs: 'What are your most frequently asked questions?',
+};
+
 const CustomerDashboardContent: React.FC = () => {
   const navigate = useNavigate();
   const { logout, toasts, toast } = useLogoutWithToast();
@@ -75,12 +84,16 @@ const CustomerDashboardContent: React.FC = () => {
     }
   }, [toast]);
 
-  const openChat = useCallback(() => {
+  const openChat = useCallback((topic?: string) => {
     reset();
     setIsChatOpen(true);
     window.dispatchEvent(new CustomEvent('customer-chat-opened'));
-    setTimeout(() => greet(), 0);
-  }, [reset, greet]);
+    if (topic && TOPIC_MESSAGES[topic]) {
+      setTimeout(() => send(TOPIC_MESSAGES[topic]), 0);
+    } else {
+      setTimeout(() => greet(), 0);
+    }
+  }, [reset, greet, send]);
 
   const closeChat = useCallback(() => {
     setIsChatOpen(false);
@@ -171,11 +184,11 @@ const CustomerDashboardContent: React.FC = () => {
                   orderData={recentOrder}
                   ticketData={recentTicket}
                   quoteData={recentQuote}
-                  onTopicSelect={() => openChat()}
+                  onTopicSelect={(key: string) => openChat(key)}
                 />
               ) : undefined
             }
-            chatCards={<ChatCards onSelect={() => openChat()} />}
+            chatCards={<ChatCards onSelect={(key) => openChat(key)} />}
           />
         </div>
       )}

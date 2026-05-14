@@ -1,45 +1,38 @@
 /**
- * Embeddings — Ollama (nomic-embed-text)
+ * Embeddings — Cohere embed-english-v3.0
  *
- * Generates vector embeddings for semantic search.
- * Used by the knowledge ingestion script and (optionally) at query time
- * to find relevant context before calling the LLM.
+ * Generates 1024-dim vector embeddings for RAG (semantic search).
+ * Browser calls go through /api/embed proxy (key stays server-side).
+ * Server-side scripts (ingest-knowledge.ts) call Cohere directly via
+ * the cohereEmbed() helper exported below.
  *
- * Model: nomic-embed-text (768 dimensions)
- * Endpoint: local Ollama /api/embed
+ * Input types:
+ *   'search_document' — when ingesting knowledge chunks
+ *   'search_query'    — when embedding a user message at query time
  */
 
-const EMBED_BASE_URL =
-  (import.meta as any).env?.VITE_EMBED_BASE_URL ?? 'http://localhost:11434';
-const EMBED_MODEL =
-  (import.meta as any).env?.VITE_EMBED_MODEL ?? 'nomic-embed-text';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
+export type EmbedInputType = 'search_document' | 'search_query';
 
 export interface EmbeddingResult {
   embedding: number[];
   model: string;
 }
 
-interface OllamaEmbedResponse {
-  model: string;
-  embeddings: number[][];
-}
-
-// ─── Core ─────────────────────────────────────────────────────────────────────
+// ─── Browser-side (via /api/embed proxy) ─────────────────────────────────────
 
 /**
- * Embed a single text string.
- * Returns a 768-dim float array.
+ * Embed a single text string via the /api/embed proxy.
+ * Returns a 1024-dim float array.
+ * Use at query time (chat pipeline).
  */
-export async function embed(text: string): Promise<EmbeddingResult> {
-  const res = await fetch(`${EMBED_BASE_URL}/api/embed`, {
+export async function embed(
+  text: string,
+  inputType: EmbedInputType = 'search_query'
+): Promise<EmbeddingResult> {
+  const res = await fetch('/api/embed', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: EMBED_MODEL,
-      input: text,
-    }),
+    body: JSON.stringify({ texts: [text], inputType }),
   });
 
   if (!res.ok) {
@@ -47,35 +40,35 @@ export async function embed(text: string): Promise<EmbeddingResult> {
     throw new Error(`Embed error ${res.status}: ${body}`);
   }
 
-  const data = (await res.json()) as OllamaEmbedResponse;
+  const data = (await res.json()) as { embeddings: number[][]; model: string };
   const embedding = data.embeddings?.[0];
-  if (!embedding) throw new Error('No embedding returned from Ollama');
+  if (!embedding) throw new Error('No embedding returned from /api/embed');
 
-  return { embedding, model: data.model };
+  return { embedding, model: data.model ?? 'embed-english-v3.0' };
 }
 
 /**
- * Embed multiple texts in parallel (batched).
- * Use for seeding the knowledge base.
+ * Embed multiple texts in a single Cohere API call via the proxy.
+ * Use for browser-side batch operations (rare).
  */
-export async function embedBatch(texts: string[]): Promise<EmbeddingResult[]> {
-  return Promise.all(texts.map(t => embed(t)));
-}
+export async function embedBatch(
+  texts: string[],
+  inputType: EmbedInputType = 'search_document'
+): Promise<EmbeddingResult[]> {
+  const res = await fetch('/api/embed', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ texts, inputType }),
+  });
 
-/**
- * Cosine similarity between two vectors.
- * Returns a value between -1 and 1 (higher = more similar).
- */
-export function cosineSimilarity(a: number[], b: number[]): number {
-  if (a.length !== b.length) throw new Error('Vector length mismatch');
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Embed batch error ${res.status}: ${body}`);
   }
-  const denom = Math.sqrt(normA) * Math.sqrt(normB);
-  return denom === 0 ? 0 : dot / denom;
+
+  const data = (await res.json()) as { embeddings: number[][]; model: string };
+  return data.embeddings.map(embedding => ({
+    embedding,
+    model: data.model ?? 'embed-english-v3.0',
+  }));
 }

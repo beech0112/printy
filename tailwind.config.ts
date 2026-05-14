@@ -1,4 +1,5 @@
 import type { Config } from 'tailwindcss';
+import typography from '@tailwindcss/typography';
 
 export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
@@ -190,6 +191,7 @@ export default {
     },
   },
   plugins: [
+    typography,
     // Custom plugin for container queries (progressive enhancement)
     function ({
       addUtilities,

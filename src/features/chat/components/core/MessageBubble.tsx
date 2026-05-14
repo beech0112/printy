@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import ReactMarkdown from 'react-markdown';
 import {
   Bot,
   User,
@@ -556,9 +557,26 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             }
           >
             {text && (
-              <div className={preserveNewlines ? '' : 'whitespace-pre-wrap'}>
-                {renderTextWithInlineImages(text)}
-              </div>
+              isBot ? (
+                <div className="prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-headings:my-1 prose-strong:font-semibold prose-strong:text-neutral-800">
+                  <ReactMarkdown
+                    components={{
+                      img: ({ src }) => src ? <InlineImage imageUrl={src} /> : null,
+                      a: ({ href, children }) => (
+                        <a href={href} target="_blank" rel="noopener noreferrer" className="text-brand-primary underline">
+                          {children}
+                        </a>
+                      ),
+                    }}
+                  >
+                    {text}
+                  </ReactMarkdown>
+                </div>
+              ) : (
+                <div className={preserveNewlines ? '' : 'whitespace-pre-wrap'}>
+                  {renderTextWithInlineImages(text)}
+                </div>
+              )
             )}
 
             {/* Ticket image attachment as clickable link */}

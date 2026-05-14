@@ -7,7 +7,7 @@
  * Tool calling: Gemini native function calling format, mapped to our OllamaTool schemas.
  */
 
-import { TOOLS, executeTool, type ToolCall, type ToolExecutionContext } from './tools';
+import { TOOLS, ADMIN_TOOL_NAMES, executeTool, type ToolCall, type ToolExecutionContext } from './tools';
 import { getSystemPrompt, type UserRole } from './prompts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -74,11 +74,15 @@ export async function chat(options: LLMChatOptions): Promise<LLMChatResult> {
 
     console.debug('[llm] calling /api/chat | round:', rounds, '| history:', currentHistory.length);
 
+    const roleTools = userRole === 'admin'
+      ? TOOLS
+      : TOOLS.filter(t => !ADMIN_TOOL_NAMES.includes(t.function.name));
+
     const reqBody: ProxyRequest = {
       systemPrompt,
       history: currentHistory,
       userMessage: currentMessage,
-      tools: TOOLS,
+      tools: roleTools,
     };
 
     let proxyRes: ProxyResponse;

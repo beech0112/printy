@@ -1,8 +1,11 @@
 /**
  * useAdminChat
- * Stubbed — flow engine removed. Will be replaced by the AI pipeline hook.
+ * Wraps useChatPipeline for the admin role.
+ * Replaces the legacy stub — wired to the real AI pipeline.
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { supabase } from '@lib/supabase';
+import { useChatPipeline } from '@features/chat/hooks/shared/useChatPipeline';
 import type { ChatMessage, QuickReply } from '@features/chat/types/chat';
 
 export interface UseAdminChatReturn {
@@ -31,22 +34,54 @@ export interface UseAdminChatReturn {
 
 export const useAdminChat = (): UseAdminChatReturn => {
   const [chatOpen, setChatOpen] = useState(false);
-  const [messages] = useState<ChatMessage[]>([]);
-  const [isTyping] = useState(false);
-  const [quickReplies] = useState<QuickReply[]>([]);
+  const [userId, setUserId] = useState<string | undefined>(undefined);
+
+  // Fetch the current admin user ID once on mount
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data?.user?.id) setUserId(data.user.id);
+    });
+  }, []);
+
+  const pipeline = useChatPipeline({
+    userRole: 'admin',
+    userId,
+    autoGreet: false,
+  });
+
+  const handleChatOpen = () => {
+    setChatOpen(true);
+    pipeline.greet();
+  };
+
+  const handleChatOpenWithTopic = (topic: string) => {
+    setChatOpen(true);
+    pipeline.send(topic);
+  };
+
+  const endChatWithDelay = () => {
+    setTimeout(() => {
+      setChatOpen(false);
+      pipeline.reset();
+    }, 300);
+  };
+
+  const handleQuickReply = (value: string | { value: string; label: string }) => {
+    pipeline.send(typeof value === 'string' ? value : value.value);
+  };
 
   return {
     chatOpen,
     setChatOpen,
-    messages,
-    isTyping,
-    quickReplies,
-    handleChatOpen: () => setChatOpen(true),
-    handleChatOpenWithTopic: () => {},
+    messages: pipeline.messages,
+    isTyping: pipeline.isTyping,
+    quickReplies: [],
+    handleChatOpen,
+    handleChatOpenWithTopic,
     handleShowConversation: async () => {},
-    endChatWithDelay: () => setChatOpen(false),
-    handleSendMessage: () => {},
-    handleQuickReply: () => {},
+    endChatWithDelay,
+    handleSendMessage: pipeline.send,
+    handleQuickReply,
     readOnly: false,
     dbSessionId: null,
     currentConversationId: null,
