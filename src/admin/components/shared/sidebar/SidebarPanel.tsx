@@ -3,6 +3,7 @@ import { MessageSquare, Settings, LogOut, Bot } from 'lucide-react';
 import { Button, Tooltip } from '@admin/components/shared';
 
 export interface SidebarPanelProps {
+  onOpenChat?: () => void;
   onViewAllChats?: () => void;
   onSettings: () => void;
   onLogout: () => void;
@@ -14,6 +15,7 @@ export interface SidebarPanelProps {
  * Uses tooltips on hover to show labels
  */
 export const SidebarPanel: React.FC<SidebarPanelProps> = ({
+  onOpenChat,
   onViewAllChats,
   onSettings,
   onLogout,
@@ -25,10 +27,17 @@ export const SidebarPanel: React.FC<SidebarPanelProps> = ({
     >
       {/* Top Group: Printy Logo + Chats Button */}
       <div className="flex flex-col items-center gap-2 shrink-0 p-2 pt-4 z-10">
-        {/* Printy Logo */}
-        <div className="w-10 h-10 rounded-lg bg-brand-primary text-white flex items-center justify-center mb-2">
-          <Bot className="w-6 h-6" />
-        </div>
+        {/* Printy Logo / Open Chat */}
+        <Tooltip label="Ask Printy" position="right">
+          <button
+            type="button"
+            onClick={onOpenChat}
+            className="w-10 h-10 rounded-lg bg-brand-primary text-white flex items-center justify-center mb-2 hover:opacity-90 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-brand-primary"
+            aria-label="Open Printy chat"
+          >
+            <Bot className="w-6 h-6" />
+          </button>
+        </Tooltip>
 
         {/* Chats Button */}
         {onViewAllChats && (

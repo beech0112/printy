@@ -120,6 +120,13 @@ export const AdminChatDock: React.FC<AdminChatDockProps> = ({
     return groups;
   }, [messages, quickReplies]);
 
+  // When there's no sessionId (fresh AI chat), show content immediately
+  useEffect(() => {
+    if (open && !sessionId) {
+      setShowContent(true);
+    }
+  }, [open, sessionId]);
+
   // Show loading toast FIRST, then delay showing the actual chat
   useEffect(() => {
     if (open && sessionId) {

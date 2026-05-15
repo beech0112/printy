@@ -24,6 +24,7 @@ export const DesktopLayout: React.FC<DesktopLayoutProps> = ({
   children,
   chatDock,
   onNavigate,
+  onOpenChat,
   onSettings,
   onLogout,
   onViewAllChats,
@@ -36,6 +37,7 @@ export const DesktopLayout: React.FC<DesktopLayoutProps> = ({
         style={{ zIndex: 99998 }}
       >
         <SidebarPanel
+          onOpenChat={onOpenChat}
           onSettings={onSettings}
           onLogout={onLogout}
           onViewAllChats={onViewAllChats}
