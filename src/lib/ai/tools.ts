@@ -342,7 +342,7 @@ export const TOOLS: OllamaTool[] = [
     function: {
       name: 'send_quote_proposal',
       description:
-        'Admin only. Sends a price proposal to a customer for their quote request. Creates a quote_proposals record and updates the quote status to sent.',
+        'Admin only. Sends a price proposal to a customer for their quote request. Updates the quote record with pricing and updates status to sent.',
       parameters: {
         type: 'object',
         properties: {
@@ -457,7 +457,7 @@ export const TOOLS: OllamaTool[] = [
           },
           status: {
             type: 'string',
-            enum: ['pending', 'confirmed', 'in_production', 'ready_for_pickup', 'out_for_delivery', 'delivered', 'cancelled'],
+            enum: ['awaiting_payment', 'verifying_payment', 'reupload_payment', 'processing', 'for_pickup', 'for_delivery', 'completed', 'cancelled'],
             description: 'The new status for the order.',
           },
         },
@@ -531,10 +531,11 @@ export async function executeTool(
           .from('inquiries')
           .insert({
             profile_id: context.userId,
+            type: 'quote_request',
             subject,
             body,
             ...(service_id ? { service_id } : {}),
-            status: 'open',
+            status: 'new',
           })
           .select('display_id')
           .single();
@@ -562,7 +563,7 @@ export async function executeTool(
         }
         const { data, error } = await context.supabase
           .from('quotes')
-          .select('display_id, status, total_amount, notes, created_at, updated_at, quote_proposals(unit_price, quantity, line_total, notes, is_accepted)')
+          .select('display_id, status, total_amount, quoted_price, admin_notes, spec_final, created_at, updated_at')
           .eq('profile_id', context.userId)
           .or(`display_id.eq.${quote_id},id.eq.${quote_id}`)
           .maybeSingle();
@@ -640,10 +641,11 @@ export async function executeTool(
           .from('inquiries')
           .insert({
             profile_id: context.userId,
+            type: 'ticket',
             subject,
             body,
             ...(service_id ? { service_id } : {}),
-            status: 'open',
+            status: 'new',
           })
           .select('display_id')
           .single();
@@ -653,12 +655,6 @@ export async function executeTool(
 
       case 'escalate_to_human': {
         const { reason } = call.arguments as { reason: string };
-        if (context.supabase && context.sessionId) {
-          await context.supabase
-            .from('chat_sessions')
-            .update({ metadata: { escalated: true, escalation_reason: reason } })
-            .eq('id', context.sessionId);
-        }
         return { tool: call.name, result: { escalated: true, reason } };
       }
 
@@ -671,7 +667,7 @@ export async function executeTool(
         const { data, error } = await context.supabase
           .from('inquiries')
           .select('display_id, subject, status, created_at, profiles(display_name, email, customer_type)')
-          .in('status', ['open', 'in_progress'])
+          .in('status', ['new', 'in_progress'])
           .order('created_at', { ascending: true });
         if (error) return { tool: call.name, result: null, error: error.message };
         return { tool: call.name, result: data ?? [] };
@@ -684,7 +680,7 @@ export async function executeTool(
         }
         const { data, error } = await context.supabase
           .from('inquiries')
-          .select('display_id, subject, body, status, created_at, attachments, profiles(display_name, email, customer_type), quotes(display_id, status, total_amount, quote_proposals(unit_price, quantity, line_total, notes))')
+          .select('display_id, subject, body, status, created_at, attachments, profiles(display_name, email, customer_type), quotes(display_id, status, total_amount, quoted_price, admin_notes, spec_final, proposal_sent_at)')
           .or(`display_id.eq.${inquiry_id},id.eq.${inquiry_id}`)
           .maybeSingle();
         if (error) return { tool: call.name, result: null, error: error.message };
@@ -711,41 +707,43 @@ export async function executeTool(
         if (inqErr || !inquiry) {
           return { tool: call.name, result: null, error: inqErr?.message ?? 'Inquiry not found.' };
         }
-        const quotes = inquiry.quotes as any[];
+        const linkedQuotes = inquiry.quotes as any[];
         let quoteId: string;
-        if (quotes && quotes.length > 0) {
-          quoteId = quotes[0].id;
+        if (linkedQuotes && linkedQuotes.length > 0) {
+          quoteId = linkedQuotes[0].id;
+          // Update existing quote with proposal details
+          const { error: upErr } = await context.supabase
+            .from('quotes')
+            .update({
+              quoted_price: unit_price * quantity,
+              total_amount: unit_price * quantity,
+              admin_notes: notes ?? null,
+              spec_final: { unit_price, quantity },
+              proposed_by: context.userId,
+              proposal_sent_at: new Date().toISOString(),
+              status: 'sent',
+            })
+            .eq('id', quoteId);
+          if (upErr) return { tool: call.name, result: null, error: upErr.message };
         } else {
-          // Create the quote record first
+          // Create the quote record with proposal details
           const { data: newQuote, error: qErr } = await context.supabase
             .from('quotes')
             .insert({
               inquiry_id: inquiry.id,
-              status: 'draft',
+              quoted_price: unit_price * quantity,
               total_amount: unit_price * quantity,
+              admin_notes: notes ?? null,
+              spec_final: { unit_price, quantity },
+              proposed_by: context.userId,
+              proposal_sent_at: new Date().toISOString(),
+              status: 'sent',
             })
             .select('id')
             .single();
           if (qErr || !newQuote) return { tool: call.name, result: null, error: qErr?.message ?? 'Failed to create quote.' };
           quoteId = newQuote.id;
         }
-        // Insert proposal
-        const { error: propErr } = await context.supabase
-          .from('quote_proposals')
-          .insert({
-            quote_id: quoteId,
-            spec_id: (await context.supabase.from('quote_specs').insert({ quantity }).select('id').single()).data?.id,
-            proposed_by: context.userId,
-            unit_price,
-            quantity,
-            notes: notes ?? null,
-          });
-        if (propErr) return { tool: call.name, result: null, error: propErr.message };
-        // Update quote status to sent
-        await context.supabase
-          .from('quotes')
-          .update({ status: 'sent', sent_at: new Date().toISOString(), total_amount: unit_price * quantity })
-          .eq('id', quoteId);
         return { tool: call.name, result: { success: true, inquiry_id, quote_id: quoteId } };
       }
 
@@ -756,7 +754,7 @@ export async function executeTool(
         }
         const { data: quote, error: qErr } = await context.supabase
           .from('quotes')
-          .select('id, profile_id, service_id, spec_id, total_amount, status')
+          .select('id, profile_id, total_amount, status')
           .or(`display_id.eq.${quote_id},id.eq.${quote_id}`)
           .maybeSingle();
         if (qErr || !quote) return { tool: call.name, result: null, error: qErr?.message ?? 'Quote not found.' };
@@ -768,10 +766,8 @@ export async function executeTool(
           .insert({
             profile_id: quote.profile_id,
             quote_id: quote.id,
-            service_id: quote.service_id ?? null,
-            spec_id: quote.spec_id ?? null,
             total_amount: quote.total_amount,
-            status: 'confirmed',
+            status: 'awaiting_payment',
             payment_status: 'pending',
           })
           .select('display_id')
@@ -803,13 +799,11 @@ export async function executeTool(
           .from('orders')
           .update({
             payment_status: 'verified',
-            payment_verified_by: context.userId,
-            payment_verified_at: new Date().toISOString(),
-            status: 'in_production',
+            status: 'processing',
           })
           .or(`display_id.eq.${order_id},id.eq.${order_id}`);
         if (error) return { tool: call.name, result: null, error: error.message };
-        return { tool: call.name, result: { success: true, order_id, new_status: 'in_production' } };
+        return { tool: call.name, result: { success: true, order_id, new_status: 'processing' } };
       }
 
       case 'deny_payment': {
@@ -821,7 +815,7 @@ export async function executeTool(
           .from('orders')
           .update({
             payment_status: 'denied',
-            payment_denied_by: context.userId,
+            status: 'reupload_payment',
             ai_context: { denial_reason: reason },
           })
           .or(`display_id.eq.${order_id},id.eq.${order_id}`);
@@ -831,7 +825,7 @@ export async function executeTool(
 
       case 'update_order_status': {
         const { order_id, status } = call.arguments as { order_id: string; status: string };
-        const validStatuses = ['pending', 'confirmed', 'in_production', 'ready_for_pickup', 'out_for_delivery', 'delivered', 'cancelled'];
+        const validStatuses = ['awaiting_payment', 'verifying_payment', 'reupload_payment', 'processing', 'for_pickup', 'for_delivery', 'completed', 'cancelled'];
         if (!validStatuses.includes(status)) {
           return { tool: call.name, result: null, error: `Invalid status "${status}". Must be one of: ${validStatuses.join(', ')}` };
         }

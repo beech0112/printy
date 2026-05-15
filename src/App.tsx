@@ -19,8 +19,8 @@ import AdminQuotes from '@admin/pages/Quotes';
 import AdminPortfolio from '@admin/pages/Portfolio';
 import AdminChats from '@admin/pages/Chats';
 import AdminSettingsPage from '@admin/pages/AdminSettings';
-import SuperAdminRoot from '@superadmin/pages/SuperAdminRoot';
-import SuperAdminDashboard from '@superadmin/pages/Dashboard';
+// import SuperAdminRoot from '@superadmin/pages/SuperAdminRoot';
+// import SuperAdminDashboard from '@superadmin/pages/Dashboard';
 import './index.css';
 import { RequireAuth } from '@auth/components/guards/RequireAuth';
 import { GuestOnly } from '@auth/components/guards/GuestOnly';
@@ -78,7 +78,7 @@ function App() {
       <Route
         path="/admin"
         element={
-          <RequireAuth allowed={['admin']}>
+          <RequireAuth allowed={['admin', 'superadmin']}>
             <AdminRoot />
           </RequireAuth>
         }
@@ -91,7 +91,8 @@ function App() {
         <Route path="chats" element={<AdminChats />} />
         <Route path="settings" element={<AdminSettingsPage />} />
       </Route>
-      <Route
+      {/* superadmin route disabled — not in current iteration */}
+      {/* <Route
         path="/superadmin"
         element={
           <RequireAuth allowed={['superadmin']}>
@@ -100,7 +101,7 @@ function App() {
         }
       >
         <Route index element={<SuperAdminDashboard />} />
-      </Route>
+      </Route> */}
     </Routes>
   );
 }

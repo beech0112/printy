@@ -56,135 +56,20 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
   const { handleAttachFiles } = useChatAttachments(handleSendMessage);
   const { handleTicketImageUpload } = useTicketImageUpload();
 
-  // Guarded send to block text on upload-required nodes (shows toast; does not save)
+  // Send handler — stateless pipeline, no node-state guards needed
   const handleSendGuarded = useCallback(
     async (text: string) => {
-      try {
-        if (dbSessionId) {
-          const { data: sessionRow } = await supabase
-            .from('chat_sessions_v2')
-            .select('metadata')
-            .eq('session_id', dbSessionId)
-            .single();
-          const currentNodeId =
-            (sessionRow?.metadata as any)?.current_node_id || null;
-          const ctx = (sessionRow?.metadata as any)?.context || {};
-          const expectsUploadExplicit =
-            currentNodeId === 'upload_image_instructions' ||
-            currentNodeId === 'request_upload' ||
-            currentNodeId === 'upload_payment_instructions' ||
-            ctx?.awaiting_file_upload === true ||
-            ctx?.expects_file_upload === true;
-          if (expectsUploadExplicit) {
-            toast.error(
-              'Upload required',
-              'This step needs a file upload. Please use the attachment button to add files. Text messages will not work for this step.'
-            );
-            return;
-          }
-        }
-      } catch (e) {
-        console.error('[Admin handleSendGuarded] Verify node state failed:', e);
-      }
       handleSendMessage(text);
     },
-    [dbSessionId, toast, handleSendMessage]
+    [handleSendMessage]
   );
 
-  // Enhanced file upload handler that uses ticket image upload for ticket review flows
+  // File upload handler — stateless pipeline
   const handleFileUpload = useCallback(
     async (files: FileList) => {
-      // Guard: block uploads when current node does not expect a file
-      try {
-        if (dbSessionId) {
-          const { data: sessionRow } = await supabase
-            .from('chat_sessions_v2')
-            .select('metadata')
-            .eq('session_id', dbSessionId)
-            .single();
-          const currentNodeId =
-            (sessionRow?.metadata as any)?.current_node_id || null;
-          const ctx = (sessionRow?.metadata as any)?.context || {};
-          // Block explicitly when node expects text-only admin reply
-          if (currentNodeId === 'collect_admin_reply') {
-            toast.error(
-              'Upload blocked',
-              'This step expects a text reply only. File uploads are not allowed here.'
-            );
-            return;
-          }
-          const expectsUploadExplicit =
-            currentNodeId === 'upload_image_instructions' ||
-            currentNodeId === 'request_upload' ||
-            currentNodeId === 'upload_payment_instructions' ||
-            ctx?.awaiting_file_upload === true ||
-            ctx?.expects_file_upload === true;
-          if (!expectsUploadExplicit) {
-            toast.error(
-              'Upload blocked',
-              'This step does not accept file uploads. Please use the provided options or continue.'
-            );
-            return;
-          }
-        }
-      } catch (e) {
-        console.error('[Admin handleFileUpload] Verify node state failed:', e);
-      }
-      // Check if we're in admin-review-ticket flow
-      if (dbSessionId) {
-        // Fetch session metadata to check flow_id and get inquiry_id
-        const { data: sessionData } = await supabase
-          .from('chat_sessions_v2')
-          .select('flow_id, metadata')
-          .eq('session_id', dbSessionId)
-          .single();
-
-        if (
-          sessionData?.flow_id === 'admin-review-ticket' &&
-          sessionData?.metadata?.context?.inquiry_id
-        ) {
-          const inquiryId = sessionData.metadata.context.inquiry_id;
-          const customerId = sessionData.metadata.context.customer_id;
-
-          if (inquiryId && customerId) {
-            // Use ticket file upload for ticket review flows
-            setUploadPct(0);
-            await handleTicketImageUpload(
-              files,
-              inquiryId,
-              customerId,
-              urls => {
-                if (urls && urls.length > 0) {
-                  handleSendMessage(urls.join('\n'));
-                }
-                setTimeout(() => setUploadPct(null), 400);
-              },
-              errors => {
-                if (errors && errors.length > 0) {
-                  console.error(
-                    '[Admin handleFileUpload] Upload errors:',
-                    errors
-                  );
-                  // Show toast only; DO NOT send a chat message so the flow does not advance
-                  toast.error('Upload failed', errors.join('; '));
-                }
-                setTimeout(() => setUploadPct(null), 400);
-              },
-              pct => setUploadPct(pct)
-            );
-            return;
-          } else {
-            console.error(
-              '[Admin handleFileUpload] Missing inquiryId or customerId'
-            );
-          }
-        }
-      }
-
-      // Use regular chat attachments for other flows
       handleAttachFiles(files);
     },
-    [dbSessionId, handleTicketImageUpload, handleSendMessage, handleAttachFiles]
+    [handleAttachFiles]
   );
 
   // Listen for admin-chat-open custom events from ticket cards

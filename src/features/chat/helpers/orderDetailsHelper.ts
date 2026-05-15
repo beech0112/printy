@@ -9,28 +9,18 @@
  */
 
 import { supabase } from '@lib/supabase';
-import {
-  resolveCategoryName,
-  formatServiceLabel,
-} from '@features/chat/helpers/specDisplay';
 
 export interface OrderDetailsData {
   orderId: string;
   displayId: string | null;
   customerId: string;
-  orderSpecs: any;
   totalAmount: number;
   status: string;
-  paymentProof: string | null;
-  paymentVerifiedAt: string | null;
-  paymentVerifiedBy: string | null;
-  paymentDeniedAt: string | null;
-  paymentDeniedBy: string | null;
+  paymentStatus: string | null;
   createdAt: string;
   updatedAt: string;
   quoteId: string | null;
-  proposalId: string | null;
-  sessionId: string | null;
+  inquiryId: string | null;
 }
 
 /**
@@ -44,25 +34,19 @@ export async function fetchOrderDetails(
       .from('orders')
       .select(
         `
-        order_id,
+        id,
         display_id,
-        customer_id,
-        order_specs,
+        profile_id,
         total_amount,
         status,
-        payment_proof,
-        payment_verified_at,
-        payment_verified_by,
-        payment_denied_at,
-        payment_denied_by,
+        payment_status,
         created_at,
         updated_at,
         quote_id,
-        proposal_id,
-        session_id
+        inquiry_id
       `
       )
-      .eq('order_id', orderId)
+      .eq('id', orderId)
       .single();
 
     if (error || !order) {
@@ -71,22 +55,16 @@ export async function fetchOrderDetails(
     }
 
     return {
-      orderId: order.order_id,
-      displayId: order.display_id,
-      customerId: order.customer_id,
-      orderSpecs: order.order_specs || {},
-      totalAmount: order.total_amount,
-      status: order.status,
-      paymentProof: order.payment_proof,
-      paymentVerifiedAt: order.payment_verified_at,
-      paymentVerifiedBy: order.payment_verified_by,
-      paymentDeniedAt: order.payment_denied_at,
-      paymentDeniedBy: order.payment_denied_by,
-      createdAt: order.created_at,
-      updatedAt: order.updated_at,
-      quoteId: order.quote_id,
-      proposalId: order.proposal_id,
-      sessionId: order.session_id,
+      orderId: (order as any).id,
+      displayId: (order as any).display_id,
+      customerId: (order as any).profile_id,
+      totalAmount: (order as any).total_amount,
+      status: (order as any).status,
+      paymentStatus: (order as any).payment_status ?? null,
+      createdAt: (order as any).created_at,
+      updatedAt: (order as any).updated_at,
+      quoteId: (order as any).quote_id ?? null,
+      inquiryId: (order as any).inquiry_id ?? null,
     };
   } catch (error) {
     console.error('[fetchOrderDetails] Unexpected error:', error);
@@ -95,91 +73,18 @@ export async function fetchOrderDetails(
 }
 
 /**
- * Format order specifications into a readable text format
- * Similar to formatProposalSpecs but for order data
- */
-export async function formatOrderSpecs(
-  orderSpecs: any,
-  adminNotes?: string
-): Promise<string[]> {
-  const lines: string[] = [];
-
-  if (orderSpecs.product_name) {
-    lines.push(`• Product: ${orderSpecs.product_name}`);
-  }
-
-  if (orderSpecs.service_id) {
-    const svcName = await formatServiceLabel(orderSpecs.service_id);
-    if (svcName) lines.push(`• Service: ${svcName}`);
-  }
-
-  if (orderSpecs.category) {
-    const catName = await resolveCategoryName(orderSpecs.category);
-    lines.push(`• Category: ${catName || orderSpecs.category}`);
-  }
-
-  if (orderSpecs.description) {
-    lines.push(`• Description: ${orderSpecs.description}`);
-  }
-
-  if (orderSpecs.size) {
-    lines.push(`• Size: ${orderSpecs.size}`);
-  }
-
-  if (Array.isArray(orderSpecs.materials) && orderSpecs.materials.length > 0) {
-    lines.push(`• Materials: ${orderSpecs.materials.join(', ')}`);
-  }
-
-  if (orderSpecs.color) {
-    lines.push(`• Color: ${orderSpecs.color}`);
-  }
-
-  if (Array.isArray(orderSpecs.finishing) && orderSpecs.finishing.length > 0) {
-    lines.push(`• Finishing: ${orderSpecs.finishing.join(', ')}`);
-  }
-
-  if (orderSpecs.quantity) {
-    lines.push(`• Quantity: ${orderSpecs.quantity}`);
-  }
-
-  if (orderSpecs.deadline) {
-    lines.push(`• Deadline: ${orderSpecs.deadline}`);
-  }
-
-  if (orderSpecs.delivery_method) {
-    lines.push(`• Delivery Method: ${orderSpecs.delivery_method}`);
-  }
-
-  if (orderSpecs.notes) {
-    lines.push(`• Notes: ${orderSpecs.notes}`);
-  }
-
-  if (adminNotes) {
-    lines.push(`• Admin Notes: ${adminNotes}`);
-  }
-
-  return lines;
-}
-
-/**
  * Format complete order details for admin view
  */
 export async function formatOrderDetailsForAdmin(
   orderDetails: OrderDetailsData
 ): Promise<string> {
-  const specLines = await formatOrderSpecs(orderDetails.orderSpecs);
-
   let text = `Order Details:\n`;
   text += `Order ID: ${orderDetails.displayId || orderDetails.orderId}\n`;
   text += `Status: ${orderDetails.status}\n`;
-  text += `Created: ${new Date(orderDetails.createdAt).toLocaleDateString()}\n\n`;
-
-  if (specLines.length > 0) {
-    text += `Specifications:\n`;
-    text += specLines.join('\n');
-    text += `\n\n`;
+  if (orderDetails.paymentStatus) {
+    text += `Payment Status: ${orderDetails.paymentStatus}\n`;
   }
-
+  text += `Created: ${new Date(orderDetails.createdAt).toLocaleDateString()}\n\n`;
   text += `Total Amount: ₱${Number(orderDetails.totalAmount).toLocaleString()}`;
 
   return text;

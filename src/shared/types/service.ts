@@ -4,47 +4,39 @@
  */
 
 export interface ServiceCategory {
-  category_id: string;
-  category_name: string;
+  id: string;
+  name: string;
   description: string | null;
-  display_order: number;
+  sort_order: number;
   is_active: boolean;
   created_at: string;
   updated_at: string;
-  created_by?: string;
-  updated_by?: string;
-  created_by_user?: {
-    first_name: string | null;
-    last_name: string | null;
-  };
-  updated_by_user?: {
-    first_name: string | null;
-    last_name: string | null;
-  };
+  // Compat aliases
+  category_id?: string;
+  category_name?: string;
+  display_order?: number;
 }
 
 export interface PrintingService {
-  service_id: string;
-  display_id: string;
-  service_name: string;
+  id: string;
   category_id: string;
-  category?: ServiceCategory;
+  name: string;
   description: string | null;
+  base_price: number | null;
+  price_unit: string | null;
+  min_quantity: number | null;
+  turnaround_days: number | null;
+  metadata: any;
   status: 'active' | 'inactive' | 'retired';
   created_at: string;
   updated_at: string;
-  created_by?: string;
-  updated_by?: string;
-  created_by_user?: {
-    first_name: string | null;
-    last_name: string | null;
-  };
-  updated_by_user?: {
-    first_name: string | null;
-    last_name: string | null;
-  };
+  category?: ServiceCategory;
   // Optional aggregate: all-time completed orders count (from service_order_stats view)
   total_order_count?: number;
+  // Compat aliases
+  service_id?: string;
+  service_name?: string;
+  display_id?: string;
 }
 
 export interface ServiceWithCategory extends PrintingService {
@@ -52,13 +44,17 @@ export interface ServiceWithCategory extends PrintingService {
 }
 
 export interface ServiceCategoryWithCount {
-  category_id: string;
-  category_name: string;
+  id: string;
+  name: string;
   description: string | null;
-  display_order: number;
+  sort_order: number;
   is_active: boolean;
   service_count: number;
   services: PrintingService[];
+  // Compat aliases
+  category_id?: string;
+  category_name?: string;
+  display_order?: number;
 }
 
 // Legacy type for backward compatibility during migration

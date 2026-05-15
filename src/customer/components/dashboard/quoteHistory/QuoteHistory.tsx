@@ -236,22 +236,17 @@ const QuoteHistory: React.FC = () => {
           .from('quotes')
           .select(
             `
-            quote_id,
-            session_id,
+            id,
             display_id,
             status,
+            quoted_price,
+            accepted_at,
+            rejected_at,
             created_at,
-            updated_at,
-            ended_at,
-            proposal_id,
-            quote_proposals!left(
-              quoted_price,
-              spec_id,
-              created_at
-            )
+            updated_at
           `
           )
-          .eq('customer_id', customerId)
+          .eq('profile_id', customerId)
           .order('updated_at', { ascending: false })
           .range(rangeFrom, rangeTo);
 
@@ -261,43 +256,27 @@ const QuoteHistory: React.FC = () => {
         }
 
         const quoteList: Quote[] = (data || []).map(quote => {
-          const proposalsRaw = quote.quote_proposals as any;
-          const proposals = Array.isArray(proposalsRaw)
-            ? proposalsRaw
-            : [proposalsRaw].filter(Boolean);
-          const quotedPrice =
-            proposals && proposals.length > 0
-              ? proposals[0]?.quoted_price
+          const subject = 'Quote Request';
+          const updatedAt = new Date(quote.updated_at).getTime();
+          const acceptedAt =
+            quote.status === 'accepted' && (quote as any).accepted_at
+              ? new Date((quote as any).accepted_at).getTime()
+              : undefined;
+          const rejectedAt =
+            quote.status === 'rejected' && (quote as any).rejected_at
+              ? new Date((quote as any).rejected_at).getTime()
               : undefined;
 
-          const subject = 'Quote Request';
-          const description = undefined;
-
-          const updatedAt = new Date(quote.updated_at).getTime();
-          const endedAtTs = quote.ended_at
-            ? new Date(quote.ended_at).getTime()
-            : undefined;
-
-          const acceptedAt =
-            quote.status === 'accepted'
-              ? updatedAt
-              : quote.status === 'ended' && quote.proposal_id
-                ? (endedAtTs ?? updatedAt)
-                : undefined;
-          const rejectedAt =
-            quote.status === 'rejected' ? updatedAt : undefined;
-
           return {
-            id: quote.quote_id,
+            id: (quote as any).id,
             title: subject,
             createdAt: new Date(quote.created_at).getTime(),
             updatedAt,
             status: quote.status,
-            displayId: quote.display_id || quote.quote_id,
+            displayId: quote.display_id || (quote as any).id,
             subject,
-            description,
-            quoted_price: quotedPrice,
-            endedAt: endedAtTs,
+            description: undefined,
+            quoted_price: (quote as any).quoted_price,
             acceptedAt,
             rejectedAt,
           };
@@ -371,22 +350,17 @@ const QuoteHistory: React.FC = () => {
           .from('quotes')
           .select(
             `
-            quote_id,
-            session_id,
+            id,
             display_id,
             status,
+            quoted_price,
+            accepted_at,
+            rejected_at,
             created_at,
-            updated_at,
-            ended_at,
-            proposal_id,
-            quote_proposals!left(
-              quoted_price,
-              spec_id,
-              created_at
-            )
+            updated_at
           `
           )
-          .eq('quote_id', quoteId)
+          .eq('id', quoteId)
           .single();
 
         if (error || !data) {
@@ -394,40 +368,27 @@ const QuoteHistory: React.FC = () => {
           return;
         }
 
-        const proposalsRaw = data.quote_proposals as any;
-        const proposals = Array.isArray(proposalsRaw)
-          ? proposalsRaw
-          : [proposalsRaw].filter(Boolean);
-        const quotedPrice =
-          proposals && proposals.length > 0
-            ? proposals[0]?.quoted_price
-            : undefined;
-
         const subject = 'Quote Request';
         const updatedAt = new Date(data.updated_at).getTime();
-        const endedAtTs = data.ended_at
-          ? new Date(data.ended_at).getTime()
-          : undefined;
-
         const acceptedAt =
-          data.status === 'accepted'
-            ? updatedAt
-            : data.status === 'ended' && data.proposal_id
-              ? (endedAtTs ?? updatedAt)
-              : undefined;
-        const rejectedAt = data.status === 'rejected' ? updatedAt : undefined;
+          data.status === 'accepted' && (data as any).accepted_at
+            ? new Date((data as any).accepted_at).getTime()
+            : undefined;
+        const rejectedAt =
+          data.status === 'rejected' && (data as any).rejected_at
+            ? new Date((data as any).rejected_at).getTime()
+            : undefined;
 
         const quote: Quote = {
-          id: data.quote_id,
+          id: (data as any).id,
           title: subject,
           createdAt: new Date(data.created_at).getTime(),
           updatedAt,
           status: data.status,
-          displayId: data.display_id || data.quote_id,
+          displayId: data.display_id || (data as any).id,
           subject,
           description: undefined,
-          quoted_price: quotedPrice,
-          endedAt: endedAtTs,
+          quoted_price: (data as any).quoted_price,
           acceptedAt,
           rejectedAt,
         };
@@ -462,11 +423,11 @@ const QuoteHistory: React.FC = () => {
           event: '*',
           schema: 'public',
           table: 'quotes',
-          filter: `customer_id=eq.${customerId}`,
+          filter: `profile_id=eq.${customerId}`,
         },
         async payload => {
           const quoteId =
-            (payload.new as any)?.quote_id || (payload.old as any)?.quote_id;
+            (payload.new as any)?.id || (payload.old as any)?.id;
           if (!quoteId) return;
 
           // Handle DELETE: remove from local state

@@ -18,20 +18,46 @@ export function invalidateServiceOrderStatsCache(): void {
   serviceOrderStatsCache = null;
 }
 
+const SERVICE_SELECT = '*, category:service_categories(*)';
+const CATEGORY_SELECT = '*, services:printing_services(*)';
+
+function normalizeService(s: any): ServiceWithCategory {
+  const cat = s.category;
+  return {
+    ...s,
+    // Compat aliases so existing consumers don't break
+    service_id: s.id,
+    service_name: s.name,
+    display_id: s.id,
+    category: cat
+      ? {
+          ...cat,
+          category_id: cat.id,
+          category_name: cat.name,
+          display_order: cat.sort_order,
+        }
+      : undefined,
+  };
+}
+
+function normalizeCategory(cat: any, services: any[] = []): ServiceCategoryWithCount {
+  return {
+    ...cat,
+    category_id: cat.id,
+    category_name: cat.name,
+    display_order: cat.sort_order,
+    service_count: services.length,
+    services: services.map(s => normalizeService({ ...s, category: cat })),
+  };
+}
+
 /**
  * Fetch all services with their categories
  */
 export async function fetchAllServices(): Promise<ServiceWithCategory[]> {
   const { data, error } = await supabase
     .from('printing_services')
-    .select(
-      `
-      *,
-      category:service_categories(*),
-      created_by_user:customer!printing_services_created_by_fkey(first_name, last_name),
-      updated_by_user:customer!printing_services_updated_by_fkey(first_name, last_name)
-    `
-    )
+    .select(SERVICE_SELECT)
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -39,33 +65,13 @@ export async function fetchAllServices(): Promise<ServiceWithCategory[]> {
     throw error;
   }
 
-  const services = (data || []) as any[];
-
-  // Normalize user data (handle arrays/objects from Supabase)
-  const normalizedServices = services.map(s => {
-    const createdByUser = Array.isArray(s.created_by_user)
-      ? s.created_by_user[0]
-      : s.created_by_user;
-    const updatedByUser = Array.isArray(s.updated_by_user)
-      ? s.updated_by_user[0]
-      : s.updated_by_user;
-
-    return {
-      ...s,
-      created_by_user: createdByUser || null,
-      updated_by_user: updatedByUser || null,
-    };
-  }) as ServiceWithCategory[];
+  const services = (data || []).map(normalizeService);
 
   try {
     const counts = await fetchServiceOrderStats();
-    return normalizedServices.map(s => ({
-      ...s,
-      total_order_count: counts[s.service_id] ?? 0,
-    }));
-  } catch (e) {
-    // If stats fetch fails, return services without counts
-    return normalizedServices;
+    return services.map(s => ({ ...s, total_order_count: counts[s.id] ?? 0 }));
+  } catch {
+    return services;
   }
 }
 
@@ -75,14 +81,7 @@ export async function fetchAllServices(): Promise<ServiceWithCategory[]> {
 export async function fetchActiveServices(): Promise<ServiceWithCategory[]> {
   const { data, error } = await supabase
     .from('printing_services')
-    .select(
-      `
-      *,
-      category:service_categories(*),
-      created_by_user:customer!printing_services_created_by_fkey(first_name, last_name),
-      updated_by_user:customer!printing_services_updated_by_fkey(first_name, last_name)
-    `
-    )
+    .select(SERVICE_SELECT)
     .eq('status', 'active')
     .order('created_at', { ascending: false });
 
@@ -90,190 +89,77 @@ export async function fetchActiveServices(): Promise<ServiceWithCategory[]> {
     console.error('Error fetching active services:', error);
     throw error;
   }
-  const services = (data || []) as any[];
 
-  // Normalize user data (handle arrays/objects from Supabase)
-  const normalizedServices = services.map(s => {
-    const createdByUser = Array.isArray(s.created_by_user)
-      ? s.created_by_user[0]
-      : s.created_by_user;
-    const updatedByUser = Array.isArray(s.updated_by_user)
-      ? s.updated_by_user[0]
-      : s.updated_by_user;
-
-    return {
-      ...s,
-      created_by_user: createdByUser || null,
-      updated_by_user: updatedByUser || null,
-    };
-  }) as ServiceWithCategory[];
+  const services = (data || []).map(normalizeService);
 
   try {
     const counts = await fetchServiceOrderStats();
-    return normalizedServices.map(s => ({
-      ...s,
-      total_order_count: counts[s.service_id] ?? 0,
-    }));
-  } catch (e) {
-    return normalizedServices;
+    return services.map(s => ({ ...s, total_order_count: counts[s.id] ?? 0 }));
+  } catch {
+    return services;
   }
 }
 
 /**
  * Fetch services grouped by category
  */
-export async function fetchServicesByCategory(): Promise<
-  ServiceCategoryWithCount[]
-> {
+export async function fetchServicesByCategory(): Promise<ServiceCategoryWithCount[]> {
   const { data, error } = await supabase
     .from('service_categories')
-    .select(
-      `
-      *,
-      services:printing_services(
-        *,
-        created_by_user:customer!printing_services_created_by_fkey(first_name, last_name),
-        updated_by_user:customer!printing_services_updated_by_fkey(first_name, last_name)
-      ),
-      created_by_user:customer!service_categories_created_by_fkey(first_name, last_name),
-      updated_by_user:customer!service_categories_updated_by_fkey(first_name, last_name)
-    `
-    )
-    .order('display_order', { ascending: true });
+    .select(CATEGORY_SELECT)
+    .order('sort_order', { ascending: true });
 
   if (error) {
     console.error('Error fetching services by category:', error);
     throw error;
   }
-  const categories = (data || []) as any[];
 
-  // Normalize user data for categories and services
-  const normalizedCategories = categories.map(category => {
-    // Normalize category user data
-    const categoryCreatedBy = Array.isArray(category.created_by_user)
-      ? category.created_by_user[0]
-      : category.created_by_user;
-    const categoryUpdatedBy = Array.isArray(category.updated_by_user)
-      ? category.updated_by_user[0]
-      : category.updated_by_user;
+  let counts: Record<string, number> = {};
+  try { counts = await fetchServiceOrderStats(); } catch {}
 
-    // Normalize service user data
-    const services = (category.services || []).map((s: any) => {
-      const serviceCreatedBy = Array.isArray(s.created_by_user)
-        ? s.created_by_user[0]
-        : s.created_by_user;
-      const serviceUpdatedBy = Array.isArray(s.updated_by_user)
-        ? s.updated_by_user[0]
-        : s.updated_by_user;
-
-      return {
-        ...s,
-        created_by_user: serviceCreatedBy || null,
-        updated_by_user: serviceUpdatedBy || null,
-      };
-    });
-
+  return (data || []).map((cat: any) => {
+    const services = cat.services || [];
+    const norm = normalizeCategory(cat, services);
     return {
-      ...category,
-      created_by_user: categoryCreatedBy || null,
-      updated_by_user: categoryUpdatedBy || null,
-      service_count: services.length,
-      services,
+      ...norm,
+      services: norm.services.map(s => ({
+        ...s,
+        total_order_count: counts[s.id] ?? 0,
+      })),
     };
   });
-
-  // Attach counts per service
-  let counts: Record<string, number> = {};
-  try {
-    counts = await fetchServiceOrderStats();
-  } catch {}
-
-  return normalizedCategories.map(category => ({
-    ...category,
-    services: category.services.map((s: any) => ({
-      ...s,
-      total_order_count: counts[s.service_id] ?? 0,
-    })),
-  }));
 }
 
 /**
  * Fetch active services grouped by category
  */
-export async function fetchActiveServicesByCategory(): Promise<
-  ServiceCategoryWithCount[]
-> {
+export async function fetchActiveServicesByCategory(): Promise<ServiceCategoryWithCount[]> {
   const { data, error } = await supabase
     .from('service_categories')
-    .select(
-      `
-      *,
-      services:printing_services!inner(
-        *,
-        created_by_user:customer!printing_services_created_by_fkey(first_name, last_name, email_address, customer_id),
-        updated_by_user:customer!printing_services_updated_by_fkey(first_name, last_name, email_address, customer_id)
-      ),
-      created_by_user:customer!service_categories_created_by_fkey(first_name, last_name),
-      updated_by_user:customer!service_categories_updated_by_fkey(first_name, last_name)
-    `
-    )
+    .select(`*, services:printing_services!inner(*)`)
     .eq('is_active', true)
     .eq('services.status', 'active')
-    .order('display_order', { ascending: true });
+    .order('sort_order', { ascending: true });
 
   if (error) {
     console.error('Error fetching active services by category:', error);
     throw error;
   }
-  const categories = (data || []) as any[];
-
-  // Normalize user data for categories and services
-  const normalizedCategories = categories.map(category => {
-    // Normalize category user data
-    const categoryCreatedBy = Array.isArray(category.created_by_user)
-      ? category.created_by_user[0]
-      : category.created_by_user;
-    const categoryUpdatedBy = Array.isArray(category.updated_by_user)
-      ? category.updated_by_user[0]
-      : category.updated_by_user;
-
-    // Normalize service user data
-    const services = (category.services || []).map((s: any) => {
-      const serviceCreatedBy = Array.isArray(s.created_by_user)
-        ? s.created_by_user[0]
-        : s.created_by_user;
-      const serviceUpdatedBy = Array.isArray(s.updated_by_user)
-        ? s.updated_by_user[0]
-        : s.updated_by_user;
-
-      return {
-        ...s,
-        created_by_user: serviceCreatedBy || null,
-        updated_by_user: serviceUpdatedBy || null,
-      };
-    });
-
-    return {
-      ...category,
-      created_by_user: categoryCreatedBy || null,
-      updated_by_user: categoryUpdatedBy || null,
-      service_count: services.length,
-      services,
-    };
-  });
 
   let counts: Record<string, number> = {};
-  try {
-    counts = await fetchServiceOrderStats();
-  } catch {}
+  try { counts = await fetchServiceOrderStats(); } catch {}
 
-  return normalizedCategories.map(category => ({
-    ...category,
-    services: category.services.map((s: any) => ({
-      ...s,
-      total_order_count: counts[s.service_id] ?? 0,
-    })),
-  }));
+  return (data || []).map((cat: any) => {
+    const services = cat.services || [];
+    const norm = normalizeCategory(cat, services);
+    return {
+      ...norm,
+      services: norm.services.map(s => ({
+        ...s,
+        total_order_count: counts[s.id] ?? 0,
+      })),
+    };
+  });
 }
 
 /**
@@ -282,12 +168,7 @@ export async function fetchActiveServicesByCategory(): Promise<
 export async function fetchServicesWithFilters(
   filters: ServiceFilters
 ): Promise<ServiceWithCategory[]> {
-  let query = supabase.from('printing_services').select(`
-      *,
-      category:service_categories(*),
-      created_by_user:customer!printing_services_created_by_fkey(first_name, last_name),
-      updated_by_user:customer!printing_services_updated_by_fkey(first_name, last_name)
-    `);
+  let query = supabase.from('printing_services').select(SERVICE_SELECT);
 
   if (filters.status && filters.status.length > 0) {
     query = query.in('status', filters.status);
@@ -299,7 +180,7 @@ export async function fetchServicesWithFilters(
 
   if (filters.search) {
     query = query.or(
-      `service_name.ilike.%${filters.search}%,description.ilike.%${filters.search}%`
+      `name.ilike.%${filters.search}%,description.ilike.%${filters.search}%`
     );
   }
 
@@ -310,23 +191,7 @@ export async function fetchServicesWithFilters(
     throw error;
   }
 
-  const services = (data || []) as any[];
-
-  // Normalize user data (handle arrays/objects from Supabase)
-  return services.map(s => {
-    const createdByUser = Array.isArray(s.created_by_user)
-      ? s.created_by_user[0]
-      : s.created_by_user;
-    const updatedByUser = Array.isArray(s.updated_by_user)
-      ? s.updated_by_user[0]
-      : s.updated_by_user;
-
-    return {
-      ...s,
-      created_by_user: createdByUser || null,
-      updated_by_user: updatedByUser || null,
-    };
-  }) as ServiceWithCategory[];
+  return (data || []).map(normalizeService);
 }
 
 /**
@@ -335,37 +200,21 @@ export async function fetchServicesWithFilters(
 export async function fetchCategories(): Promise<ServiceCategory[]> {
   const { data, error } = await supabase
     .from('service_categories')
-    .select(
-      `
-      *,
-      created_by_user:customer!service_categories_created_by_fkey(first_name, last_name),
-      updated_by_user:customer!service_categories_updated_by_fkey(first_name, last_name)
-    `
-    )
+    .select('*')
     .eq('is_active', true)
-    .order('display_order', { ascending: true });
+    .order('sort_order', { ascending: true });
 
   if (error) {
     console.error('Error fetching categories:', error);
     throw error;
   }
 
-  // Normalize user data (handle arrays/objects from Supabase)
-  const categories = (data || []) as any[];
-  return categories.map(category => {
-    const createdByUser = Array.isArray(category.created_by_user)
-      ? category.created_by_user[0]
-      : category.created_by_user;
-    const updatedByUser = Array.isArray(category.updated_by_user)
-      ? category.updated_by_user[0]
-      : category.updated_by_user;
-
-    return {
-      ...category,
-      created_by_user: createdByUser || null,
-      updated_by_user: updatedByUser || null,
-    };
-  }) as ServiceCategory[];
+  return (data || []).map((cat: any) => ({
+    ...cat,
+    category_id: cat.id,
+    category_name: cat.name,
+    display_order: cat.sort_order,
+  })) as ServiceCategory[];
 }
 
 /**
@@ -382,16 +231,19 @@ export async function getActiveServicesByCategory(
   if (!categoryId) return [];
   const { data, error } = await supabase
     .from('printing_services')
-    .select('display_id, service_name')
+    .select('id, name')
     .eq('status', 'active')
     .eq('category_id', categoryId)
-    .order('display_id', { ascending: true });
+    .order('name', { ascending: true });
 
   if (error) {
     console.error('Error fetching services by category:', error);
     throw error;
   }
-  return data || [];
+  return (data || []).map((s: any) => ({
+    display_id: s.id,
+    service_name: s.name,
+  }));
 }
 
 /** Get a single category by id (minimal) */
@@ -400,20 +252,16 @@ export async function getCategoryById(
 ): Promise<{ category_id: string; category_name: string } | null> {
   const { data, error } = await supabase
     .from('service_categories')
-    .select('category_id, category_name')
-    .eq('category_id', categoryId)
+    .select('id, name')
+    .eq('id', categoryId)
     .maybeSingle();
   if (error) {
     console.error('Error fetching category by id:', error);
     return null;
   }
-  return (data as any) || null;
+  if (!data) return null;
+  return { category_id: (data as any).id, category_name: (data as any).name };
 }
-
-/**
- * Helper functions for SearchableSelect components
- * Returns SelectOption[] format for category and service dropdowns
- */
 
 /**
  * Search categories and return SelectOption format
@@ -425,20 +273,20 @@ export async function categoryOptions(
   const like = q?.trim() ? `%${q.trim()}%` : undefined;
   const base = supabase
     .from('service_categories')
-    .select('category_id, category_name')
+    .select('id, name')
     .eq('is_active', true);
-  const query = like ? base.ilike('category_name', like) : base;
+  const query = like ? base.ilike('name', like) : base;
   const { data, error } = await query
-    .order('display_order', { ascending: true })
-    .order('category_name', { ascending: true })
+    .order('sort_order', { ascending: true })
+    .order('name', { ascending: true })
     .limit(limit);
   if (error) {
     console.error('Error fetching categories:', error);
     return [];
   }
   return (data || []).map((c: any) => ({
-    value: c.category_id,
-    label: c.category_name,
+    value: c.id,
+    label: c.name,
   }));
 }
 
@@ -454,24 +302,22 @@ export async function serviceOptions(
   const searchTerm = q?.trim() || '';
   const base = supabase
     .from('printing_services')
-    .select('display_id, service_name')
+    .select('id, name')
     .eq('status', 'active')
     .eq('category_id', categoryId);
   const query = searchTerm
-    ? base.or(
-        `service_name.ilike.%${searchTerm}%,display_id.ilike.%${searchTerm}%`
-      )
+    ? base.ilike('name', `%${searchTerm}%`)
     : base;
   const { data, error } = await query
-    .order('display_id', { ascending: true })
+    .order('name', { ascending: true })
     .limit(limit);
   if (error) {
     console.error('Error fetching services:', error);
     return [];
   }
   return (data || []).map((s: any) => ({
-    value: s.display_id,
-    label: `${s.display_id} (${s.service_name})`,
+    value: s.id,
+    label: s.name,
   }));
 }
 
@@ -485,15 +331,8 @@ export function subscribeToServices(
     .channel('printing_services_changes')
     .on(
       'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: 'printing_services',
-      },
-      () => {
-        // Refetch data to get the latest state
-        fetchAllServices().then(onUpdate).catch(console.error);
-      }
+      { event: '*', schema: 'public', table: 'printing_services' },
+      () => { fetchAllServices().then(onUpdate).catch(console.error); }
     )
     .subscribe();
 }
@@ -506,15 +345,8 @@ export function subscribeToServiceCategories(onUpdate: () => void) {
     .channel('service_categories_changes')
     .on(
       'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: 'service_categories',
-      },
-      () => {
-        // Trigger update callback
-        onUpdate();
-      }
+      { event: '*', schema: 'public', table: 'service_categories' },
+      () => { onUpdate(); }
     )
     .subscribe();
 }
@@ -535,63 +367,35 @@ export function subscribeToActiveServices(
         table: 'printing_services',
         filter: 'status=eq.active',
       },
-      () => {
-        fetchActiveServices().then(onUpdate).catch(console.error);
-      }
+      () => { fetchActiveServices().then(onUpdate).catch(console.error); }
     )
     .subscribe();
 }
 
 /**
- * Get service by display ID
+ * Get service by ID
  */
 export async function fetchServiceByDisplayId(
   displayId: string
 ): Promise<ServiceWithCategory | null> {
   const { data, error } = await supabase
     .from('printing_services')
-    .select(
-      `
-      *,
-      category:service_categories(*),
-      created_by_user:customer!printing_services_created_by_fkey(first_name, last_name),
-      updated_by_user:customer!printing_services_updated_by_fkey(first_name, last_name)
-    `
-    )
-    .eq('display_id', displayId)
+    .select(SERVICE_SELECT)
+    .eq('id', displayId)
     .single();
 
   if (error) {
-    if (error.code === 'PGRST116') {
-      return null; // Not found
-    }
-    console.error('Error fetching service by display ID:', error);
+    if (error.code === 'PGRST116') return null;
+    console.error('Error fetching service by ID:', error);
     throw error;
   }
-  // Normalize user data (handle arrays/objects from Supabase)
-  const service = data as any;
-  const createdByUser = Array.isArray(service?.created_by_user)
-    ? service.created_by_user[0]
-    : service?.created_by_user;
-  const updatedByUser = Array.isArray(service?.updated_by_user)
-    ? service.updated_by_user[0]
-    : service?.updated_by_user;
 
-  const normalizedService = {
-    ...service,
-    created_by_user: createdByUser || null,
-    updated_by_user: updatedByUser || null,
-  } as ServiceWithCategory;
-
-  // Attach order count if available
+  const service = normalizeService(data);
   try {
     const counts = await fetchServiceOrderStats();
-    return {
-      ...normalizedService,
-      total_order_count: counts[normalizedService.service_id] ?? 0,
-    };
+    return { ...service, total_order_count: counts[service.id] ?? 0 };
   } catch {
-    return normalizedService;
+    return service;
   }
 }
 
@@ -603,47 +407,21 @@ export async function searchServices(
 ): Promise<ServiceWithCategory[]> {
   const { data, error } = await supabase
     .from('printing_services')
-    .select(
-      `
-      *,
-      category:service_categories(*),
-      created_by_user:customer!printing_services_created_by_fkey(first_name, last_name),
-      updated_by_user:customer!printing_services_updated_by_fkey(first_name, last_name)
-    `
-    )
-    .or(`service_name.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%`)
-    .order('service_name', { ascending: true });
+    .select(SERVICE_SELECT)
+    .or(`name.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%`)
+    .order('name', { ascending: true });
 
   if (error) {
     console.error('Error searching services:', error);
     throw error;
   }
-  const services = (data || []) as any[];
 
-  // Normalize user data (handle arrays/objects from Supabase)
-  const normalizedServices = services.map(s => {
-    const createdByUser = Array.isArray(s.created_by_user)
-      ? s.created_by_user[0]
-      : s.created_by_user;
-    const updatedByUser = Array.isArray(s.updated_by_user)
-      ? s.updated_by_user[0]
-      : s.updated_by_user;
-
-    return {
-      ...s,
-      created_by_user: createdByUser || null,
-      updated_by_user: updatedByUser || null,
-    };
-  }) as ServiceWithCategory[];
-
+  const services = (data || []).map(normalizeService);
   try {
     const counts = await fetchServiceOrderStats();
-    return normalizedServices.map(s => ({
-      ...s,
-      total_order_count: counts[s.service_id] ?? 0,
-    }));
+    return services.map(s => ({ ...s, total_order_count: counts[s.id] ?? 0 }));
   } catch {
-    return normalizedServices;
+    return services;
   }
 }
 
@@ -667,10 +445,7 @@ async function fetchServiceOrderStatsFromDb(): Promise<Record<string, number>> {
 }
 
 export async function fetchServiceOrderStats(
-  options: {
-    forceRefresh?: boolean;
-    useCache?: boolean;
-  } = {}
+  options: { forceRefresh?: boolean; useCache?: boolean } = {}
 ): Promise<Record<string, number>> {
   const { forceRefresh = false, useCache = true } = options;
 

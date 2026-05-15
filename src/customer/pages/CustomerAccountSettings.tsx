@@ -34,6 +34,9 @@ export interface UserData {
   customerType: string;
   gender?: string;
   birthday?: string;
+  regionId?: string;
+  provinceId?: string;
+  cityId?: string;
 }
 
 const AccountSettings: React.FC = () => {
@@ -92,8 +95,11 @@ const AccountSettings: React.FC = () => {
             : '0000',
           province: profile.address.province_name || '',
           region: profile.address.region_name || '',
-          barangay: profile.address.barangay_name || '',
-          building: profile.address.building_name || '',
+          barangay: profile.address.barangay || '',
+          building: '',
+          regionId: profile.address.region_id || '',
+          provinceId: profile.address.province_id || '',
+          cityId: profile.address.city_id || '',
           avatarUrl: '',
           firstName: profile.first_name,
           lastName: profile.last_name,
@@ -200,12 +206,11 @@ const AccountSettings: React.FC = () => {
       const profileUpdates = {
         contact_no: next.phone,
         address: {
-          street_name: next.address, // Street address field contains only street name
-          building_name: next.building,
-          barangay_name: next.barangay,
-          city_name: next.city,
-          province_name: next.province,
-          region_name: next.region,
+          street: next.address,
+          barangay: next.barangay,
+          city_id: next.cityId,
+          province_id: next.provinceId,
+          region_id: next.regionId,
           zip_code: next.zipCode,
         },
       };

@@ -7,9 +7,7 @@ import React, {
   useRef,
   useCallback,
 } from 'react';
-import { supabase } from '@lib/supabase';
 import type { ChatMessage } from '@features/chat/types/chat';
-import { getSessionTitle } from '@features/chat/config/sessionTitleConfig';
 
 export type AdminChatRole = 'user' | 'printy';
 
@@ -72,161 +70,16 @@ export const AdminConversationsProvider: React.FC<{
   const adminIdRef = useRef<string | null>(null);
 
   const fetchSessions = useCallback(
-    async (page: number, replace: boolean = page === 1) => {
+    async (_page: number, replace: boolean = true) => {
+      // Admin chat sessions are stateless — no DB records to load.
+      // In-session conversations are held in component state only.
       if (replace) {
-        setLoading(true);
-        loadedPagesRef.current.clear();
-        loadedDbIdsRef.current.clear();
-      } else {
-        if (loadingMore) return;
-        setLoadingMore(true);
-      }
-
-      try {
-        if (!adminIdRef.current) {
-          const { data: userData, error: userError } =
-            await supabase.auth.getUser();
-
-          if (userError || !userData?.user?.id) {
-            console.error('Error getting current admin user:', userError);
-            return;
-          }
-
-          adminIdRef.current = userData.user.id;
-        }
-
-        const currentAdminId = adminIdRef.current;
-        if (!currentAdminId) return;
-
-        const from = (page - 1) * PAGE_SIZE;
-        const to = from + PAGE_SIZE - 1;
-
-        const {
-          data: sessions,
-          error,
-          count,
-        } = await supabase
-          .from('chat_sessions_v2')
-          .select(
-            `
-            session_id,
-            flow_id,
-            status,
-            created_at,
-            ended_at,
-            display_title,
-            metadata->context->display_id,
-            inquiry:inquiries_v2!inquiry_id(
-              inquiry_id,
-              display_id,
-              inquiry_type,
-              inquiry_status
-            ),
-            quote:quotes!quote_id(
-              quote_id,
-              display_id,
-              status
-            ),
-            order:orders!order_id(
-              order_id,
-              display_id,
-              status
-            )
-          `,
-            { count: 'exact' }
-          )
-          .eq('customer_id', currentAdminId)
-          .or('metadata->admin_chat.eq.true,flow_id.eq.admin-quote-propose')
-          .is('metadata->ticket_conversation', null)
-          .order('created_at', { ascending: false })
-          .range(from, to);
-
-        if (error) {
-          console.error('Error loading admin chat sessions:', error);
-          return;
-        }
-
-        const sessionConversations: AdminConversation[] = (sessions || []).map(
-          (session: any) => {
-            const icon = undefined;
-            const title = getSessionTitle({
-              flowId: session.flow_id,
-              metadata: {
-                title: session.display_title,
-                context: {
-                  display_id: session.display_id,
-                },
-              },
-              inquiry: session.inquiry,
-              quote: session.quote,
-              order: session.order,
-            });
-
-            return {
-              id: session.session_id,
-              title,
-              createdAt: new Date(session.created_at).getTime(),
-              endedAt: session.ended_at
-                ? new Date(session.ended_at).getTime()
-                : undefined,
-              messages: [],
-              status: session.status === 'ended' ? 'ended' : 'active',
-              icon,
-              flowId: session.flow_id,
-              sessionId: session.session_id,
-            };
-          }
-        );
-
-        let merged: AdminConversation[] = [];
-        setConversations(prev => {
-          const sessionIds = new Set(sessionConversations.map(c => c.id));
-          const preserved = replace
-            ? prev.filter(c => !sessionIds.has(c.id))
-            : prev;
-
-          const map = new Map<string, AdminConversation>();
-          for (const conv of preserved) {
-            map.set(conv.id, conv);
-          }
-          for (const conv of sessionConversations) {
-            map.set(conv.id, conv);
-          }
-
-          merged = Array.from(map.values()).sort(
-            (a, b) => b.createdAt - a.createdAt
-          );
-          return merged;
-        });
-
-        if (replace) {
-          loadedDbIdsRef.current.clear();
-          loadedPagesRef.current.clear();
-          setCurrentPage(1);
-        } else {
-          setCurrentPage(prev => Math.max(prev, page));
-        }
-
-        sessionConversations.forEach(conv => {
-          const key = conv.sessionId || conv.id;
-          loadedDbIdsRef.current.add(key);
-        });
-        loadedPagesRef.current.add(page);
-
-        const total = count ?? loadedDbIdsRef.current.size;
-        setTotalCount(total);
-        setHasMore(loadedDbIdsRef.current.size < total);
-      } catch (e) {
-        console.error('loadAdminChatSessions error', e);
-      } finally {
-        if (replace) {
-          setLoading(false);
-        } else {
-          setLoadingMore(false);
-        }
+        setLoading(false);
+        setHasMore(false);
+        setTotalCount(0);
       }
     },
-    [PAGE_SIZE, loadingMore]
+    []
   );
 
   const loadAdminChatSessions = useCallback(async () => {
@@ -249,30 +102,11 @@ export const AdminConversationsProvider: React.FC<{
     }
   }, [currentPage, fetchSessions, hasMore, loading, loadingMore, totalCount]);
 
-  // Load historical messages from database
+  // Historical messages are stored in inquiries.ai_context; not exposed here.
   const loadHistoricalMessages = async (
-    sessionId: string
+    _sessionId: string
   ): Promise<ChatMessage[]> => {
-    try {
-      // TODO: replace with AI pipeline message fetch
-      const { data: rows } = await supabase
-        .from('chat_messages')
-        .select('id, role, content, created_at, metadata')
-        .eq('session_id', sessionId)
-        .order('created_at', { ascending: true });
-      const messages = rows ?? [];
-      return messages.map((m: any) => ({
-        id: m.id,
-        role: m.role === 'admin' ? 'user' : 'printy', // Map admin role to user for UI
-        text: m.text,
-        ts: m.ts,
-        metadata: m.metadata || null,
-        isHistorical: true, // Mark all loaded messages as historical to prevent typing animations
-      }));
-    } catch (error) {
-      console.error('Failed to load historical messages:', error);
-      return [];
-    }
+    return [];
   };
 
   // Load sessions on mount

@@ -490,52 +490,68 @@ export const useSignUp = () => {
 
       if (authData.user && authData.session) {
         try {
-          let locationId: string | null = null;
-          if (
-            formData.region &&
-            formData.province &&
-            formData.city &&
-            formData.barangay &&
-            formData.street
-          ) {
-            const locationResult = await supabase.rpc('upsert_full_address', {
-              p_region: formData.region || null,
-              p_province: formData.province || null,
-              p_city: formData.city || null,
-              p_zip_code: formData.zipCode || null,
-              p_barangay: formData.barangay || null,
-              p_street: formData.street || null,
-              p_building_number: null,
-              p_building_name: formData.buildingNumber || null,
-            });
-
-            if (locationResult.data) {
-              locationId = locationResult.data;
-            }
-          }
-
-          const { error: customerError } = await supabase
-            .from('customer')
+          const { error: profileError } = await supabase
+            .from('profiles')
             .upsert(
               {
-                customer_id: authData.user.id,
+                id: authData.user.id,
                 first_name: formData.firstName || null,
                 last_name: formData.lastName || null,
-                contact_no: normalizedPhone || null,
-                email_address: formData.email,
+                phone: normalizedPhone || null,
+                email: formData.email,
                 customer_type: 'regular',
                 gender: formData.gender || null,
                 birthday: formData.birthday || null,
-                location_id: locationId,
+                role: 'customer',
               },
-              { onConflict: 'customer_id', ignoreDuplicates: false }
+              { onConflict: 'id', ignoreDuplicates: false }
             );
 
-          if (customerError) {
-            console.error('Error upserting customer record:', customerError);
+          if (profileError) {
+            console.error('Error upserting profile record:', profileError);
+          }
+
+          // Insert default address if location fields are provided
+          if (formData.region && formData.province && formData.city) {
+            const { locationService } = await import(
+              '@shared/services/locationService'
+            );
+            const [regions, provinces, cities] = await Promise.all([
+              locationService.getRegions(),
+              locationService.getProvinces(undefined),
+              locationService.getCities(undefined),
+            ]);
+            const regionRow = regions.find(
+              r => r.label.toLowerCase() === formData.region.toLowerCase()
+            );
+            const provinceRow = provinces.find(
+              p => p.label.toLowerCase() === formData.province.toLowerCase()
+            );
+            const cityRow = cities.find(
+              c => c.label.toLowerCase() === formData.city.toLowerCase()
+            );
+
+            if (regionRow && provinceRow && cityRow) {
+              const { error: addrError } = await supabase
+                .from('user_addresses')
+                .insert({
+                  profile_id: authData.user.id,
+                  region_id: regionRow.value,
+                  province_id: provinceRow.value,
+                  city_id: cityRow.value,
+                  barangay: formData.barangay || null,
+                  street: formData.street || null,
+                  zip_code: formData.zipCode || null,
+                  is_default: true,
+                  label: 'Home',
+                });
+              if (addrError) {
+                console.error('Error inserting user address:', addrError);
+              }
+            }
           }
         } catch (e) {
-          // Customer creation skipped
+          console.error('Error during profile/address creation:', e);
         }
       }
 

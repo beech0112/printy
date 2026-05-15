@@ -47,18 +47,18 @@ async function fetchRoleForUser(user: User | null): Promise<Role | undefined> {
   if (!user?.id) return undefined;
   try {
     const { data } = await supabase
-      .from('customer')
-      .select('customer_type')
-      .eq('customer_id', user.id)
+      .from('profiles')
+      .select('role, customer_type')
+      .eq('id', user.id)
       .maybeSingle();
-    const dbRole = (data?.customer_type as Role | undefined) || undefined;
-    const metaRole =
-      (user.user_metadata?.role as Role | undefined) || undefined;
-    return (dbRole || metaRole || 'regular') as Role;
+    if (data?.role === 'admin') return 'admin';
+    if (data?.role === 'superadmin') return 'superadmin';
+    if (data?.role === 'customer') {
+      return data.customer_type === 'valued' ? 'valued' : 'regular';
+    }
+    return 'regular';
   } catch {
-    const metaRole =
-      (user.user_metadata?.role as Role | undefined) || undefined;
-    return (metaRole || 'regular') as Role;
+    return 'regular';
   }
 }
 
@@ -74,19 +74,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   useEffect(() => {
     let mounted = true;
-
-    const primeFromStorage = () => {
-      try {
-        const stored = JSON.parse(localStorage.getItem('user') || '{}');
-        if (stored?.role) {
-          setState(s => ({ ...s, role: stored.role as Role }));
-        }
-      } catch {
-        // ignore
-      }
-    };
-
-    primeFromStorage();
 
     const load = async () => {
       const { data: sessionData } = await supabase.auth.getSession();

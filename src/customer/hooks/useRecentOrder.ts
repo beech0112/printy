@@ -1,6 +1,6 @@
 /**
  * useRecentOrder
- * Fetches the latest order for the current user using admin real-time patterns.
+ * Fetches the latest order for the current user.
  */
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@lib/supabase';
@@ -9,6 +9,16 @@ import type { RecentOrder } from '@shared/types/customer';
 
 export type RecentOrderData = RecentOrder;
 
+const ORDER_SELECT = `
+  id,
+  display_id,
+  status,
+  payment_status,
+  created_at,
+  updated_at,
+  total_amount
+`.trim();
+
 export function useRecentOrder() {
   const [data, setData] = useState<RecentOrderData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -16,7 +26,6 @@ export function useRecentOrder() {
   const [userId, setUserId] = useState<string | null>(null);
   const dataRef = useRef<RecentOrderData | null>(null);
 
-  // Normalization function
   const normalizeOrder = (rawData: any): RecentOrderData => {
     let total: string | undefined = undefined;
     if (rawData.total_amount) {
@@ -24,23 +33,18 @@ export function useRecentOrder() {
     }
 
     return {
-      id: rawData.order_id,
+      id: rawData.id,
       displayId: rawData.display_id,
-      title: rawData.order_specs?.product_name || 'Order',
+      title: 'Order',
       status: rawData.status || 'unknown',
       createdAt: new Date(rawData.created_at).getTime(),
       updatedAt: new Date(rawData.updated_at).getTime(),
-      paymentVerifiedAt: rawData.payment_verified_at
-        ? new Date(rawData.payment_verified_at).getTime()
-        : undefined,
-      completedAt: rawData.completed_at
-        ? new Date(rawData.completed_at).getTime()
-        : undefined,
+      paymentVerifiedAt: undefined,
+      completedAt: undefined,
       total,
     };
   };
 
-  // Fetch initial recent order and set up user ID
   useEffect(() => {
     const initialize = async () => {
       try {
@@ -53,36 +57,24 @@ export function useRecentOrder() {
         }
         setUserId(user.id);
 
-        const { data, error } = await supabase
+        const { data: orderData, error: orderError } = await supabase
           .from('orders')
-          .select(
-            `
-            order_id,
-            display_id,
-            status,
-            created_at,
-            updated_at,
-            payment_verified_at,
-            completed_at,
-            total_amount,
-            order_specs
-          `
-          )
-          .eq('customer_id', user.id)
+          .select(ORDER_SELECT)
+          .eq('profile_id', user.id)
           .order('updated_at', { ascending: false })
           .limit(1)
           .maybeSingle();
 
-        if (error) {
-          setError(error.message);
+        if (orderError) {
+          setError(orderError.message);
           setLoading(false);
           return;
         }
 
-        if (data) {
-          const orderData = normalizeOrder(data);
-          setData(orderData);
-          dataRef.current = orderData;
+        if (orderData) {
+          const normalized = normalizeOrder(orderData);
+          setData(normalized);
+          dataRef.current = normalized;
         } else {
           dataRef.current = null;
         }
@@ -97,59 +89,43 @@ export function useRecentOrder() {
     initialize();
   }, []);
 
-  // Update ref whenever data changes
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
 
-  // Real-time subscription for orders changes using admin pattern
   useEffect(() => {
     if (!userId) return;
 
     const channel = supabase
-      .channel('orders-customer-recent')
+      .channel(`orders-customer-recent-${userId}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'orders',
-          filter: `customer_id=eq.${userId}`,
+          filter: `profile_id=eq.${userId}`,
         },
         async payload => {
           const orderId =
-            (payload.new as any)?.order_id || (payload.old as any)?.order_id;
+            (payload.new as any)?.id || (payload.old as any)?.id;
           if (!orderId) return;
 
           try {
-            // Handle DELETE: remove from local state or refetch
             if (payload.eventType === 'DELETE') {
               if (dataRef.current?.id === orderId) {
-                // Refetch latest order
                 const { data: latestData, error: latestError } = await supabase
                   .from('orders')
-                  .select(
-                    `
-                    order_id,
-                    display_id,
-                    status,
-                    created_at,
-                    updated_at,
-                    payment_verified_at,
-                    completed_at,
-                    total_amount,
-                    order_specs
-                  `
-                  )
-                  .eq('customer_id', userId)
+                  .select(ORDER_SELECT)
+                  .eq('profile_id', userId)
                   .order('updated_at', { ascending: false })
                   .limit(1)
                   .maybeSingle();
 
                 if (!latestError && latestData) {
-                  const orderData = normalizeOrder(latestData);
-                  setData(orderData);
-                  dataRef.current = orderData;
+                  const normalized = normalizeOrder(latestData);
+                  setData(normalized);
+                  dataRef.current = normalized;
                 } else {
                   setData(null);
                   dataRef.current = null;
@@ -158,37 +134,20 @@ export function useRecentOrder() {
               return;
             }
 
-            // Handle INSERT/UPDATE: fetch single row with joins and merge into state
             const { data: fullOrder, error: fetchError } = await supabase
               .from('orders')
-              .select(
-                `
-                order_id,
-                display_id,
-                status,
-                created_at,
-                updated_at,
-                payment_verified_at,
-                completed_at,
-                total_amount,
-                order_specs
-              `
-              )
-              .eq('order_id', orderId)
+              .select(ORDER_SELECT)
+              .eq('id', orderId)
               .single();
 
             if (fetchError || !fullOrder) {
-              console.error(
-                '[useRecentOrder] Error fetching updated order:',
-                fetchError
-              );
+              console.error('[useRecentOrder] Error fetching updated order:', fetchError);
               return;
             }
 
             const normalizedOrder = normalizeOrder(fullOrder);
             const currentOrder = dataRef.current;
 
-            // Determine if this should replace the current order
             const shouldUpdate =
               !currentOrder ||
               currentOrder.id === orderId ||
@@ -199,10 +158,7 @@ export function useRecentOrder() {
               dataRef.current = normalizedOrder;
             }
           } catch (e) {
-            console.error(
-              '[useRecentOrder] Error processing realtime update:',
-              e
-            );
+            console.error('[useRecentOrder] Error processing realtime update:', e);
           }
         }
       )

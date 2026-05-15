@@ -1,6 +1,6 @@
 /**
  * useRecentTicket
- * Fetches the latest inquiry/ticket for the current user using admin real-time patterns.
+ * Fetches the latest inquiry/ticket for the current user.
  */
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@lib/supabase';
@@ -9,6 +9,16 @@ import type { RecentTicket } from '@shared/types/customer';
 
 export type RecentTicketData = RecentTicket;
 
+const TICKET_SELECT = `
+  id,
+  display_id,
+  status,
+  type,
+  created_at,
+  updated_at,
+  resolved_at
+`.trim();
+
 export function useRecentTicket() {
   const [data, setData] = useState<RecentTicketData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -16,29 +26,26 @@ export function useRecentTicket() {
   const [userId, setUserId] = useState<string | null>(null);
   const dataRef = useRef<RecentTicketData | null>(null);
 
-  // Normalization function
   const normalizeTicket = (rawData: any): RecentTicketData => {
-    const receivedAt = new Date(rawData.received_at).getTime();
+    const createdAt = new Date(rawData.created_at).getTime();
     const updatedAt = rawData.updated_at
       ? new Date(rawData.updated_at).getTime()
-      : receivedAt;
+      : createdAt;
     const resolvedAt = rawData.resolved_at
       ? new Date(rawData.resolved_at).getTime()
       : undefined;
 
     return {
-      id: rawData.inquiry_id,
-      displayId:
-        rawData.display_id || rawData.inquiry_id.slice(0, 8).toUpperCase(),
-      subject: formatInquiryType(rawData.inquiry_type || 'other'),
-      status: rawData.inquiry_status || 'unknown',
-      createdAt: receivedAt,
+      id: rawData.id,
+      displayId: rawData.display_id || rawData.id.slice(0, 8).toUpperCase(),
+      subject: formatInquiryType(rawData.type || 'other'),
+      status: rawData.status || 'unknown',
+      createdAt,
       updatedAt,
       resolvedAt,
     };
   };
 
-  // Fetch initial recent ticket and set up user ID
   useEffect(() => {
     const initialize = async () => {
       try {
@@ -52,19 +59,9 @@ export function useRecentTicket() {
         setUserId(user.id);
 
         const { data: inquiryData, error: inquiryError } = await supabase
-          .from('inquiries_v2')
-          .select(
-            `
-            inquiry_id,
-            display_id,
-            inquiry_status,
-            inquiry_type,
-            received_at,
-            updated_at,
-            resolved_at
-          `
-          )
-          .eq('customer_id', user.id)
+          .from('inquiries')
+          .select(TICKET_SELECT)
+          .eq('profile_id', user.id)
           .order('updated_at', { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -94,50 +91,35 @@ export function useRecentTicket() {
     initialize();
   }, []);
 
-  // Update ref whenever data changes
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
 
-  // Real-time subscription for inquiries changes using admin pattern
   useEffect(() => {
     if (!userId) return;
 
     const channel = supabase
-      .channel('inquiries_v2-customer-recent')
+      .channel(`inquiries-customer-recent-${userId}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
-          table: 'inquiries_v2',
-          filter: `customer_id=eq.${userId}`,
+          table: 'inquiries',
+          filter: `profile_id=eq.${userId}`,
         },
         async payload => {
           const inquiryId =
-            (payload.new as any)?.inquiry_id ||
-            (payload.old as any)?.inquiry_id;
+            (payload.new as any)?.id || (payload.old as any)?.id;
           if (!inquiryId) return;
 
           try {
-            // Handle DELETE: remove from local state or refetch
             if (payload.eventType === 'DELETE') {
               if (dataRef.current?.id === inquiryId) {
-                // Refetch latest ticket
                 const { data: latestData, error: latestError } = await supabase
-                  .from('inquiries_v2')
-                  .select(
-                    `
-                    inquiry_id,
-                    display_id,
-                    inquiry_status,
-                    inquiry_type,
-                    received_at,
-                    updated_at,
-                    resolved_at
-                  `
-                  )
-                  .eq('customer_id', userId)
+                  .from('inquiries')
+                  .select(TICKET_SELECT)
+                  .eq('profile_id', userId)
                   .order('updated_at', { ascending: false })
                   .limit(1)
                   .maybeSingle();
@@ -154,35 +136,20 @@ export function useRecentTicket() {
               return;
             }
 
-            // Handle INSERT/UPDATE: fetch single row with joins and merge into state
             const { data: fullTicket, error: fetchError } = await supabase
-              .from('inquiries_v2')
-              .select(
-                `
-                inquiry_id,
-                display_id,
-                inquiry_status,
-                inquiry_type,
-                received_at,
-                updated_at,
-                resolved_at
-              `
-              )
-              .eq('inquiry_id', inquiryId)
+              .from('inquiries')
+              .select(TICKET_SELECT)
+              .eq('id', inquiryId)
               .single();
 
             if (fetchError || !fullTicket) {
-              console.error(
-                '[useRecentTicket] Error fetching updated ticket:',
-                fetchError
-              );
+              console.error('[useRecentTicket] Error fetching updated ticket:', fetchError);
               return;
             }
 
             const normalizedTicket = normalizeTicket(fullTicket);
             const currentTicket = dataRef.current;
 
-            // Determine if this should replace the current ticket
             const shouldUpdate =
               !currentTicket ||
               currentTicket.id === inquiryId ||
@@ -193,10 +160,7 @@ export function useRecentTicket() {
               dataRef.current = normalizedTicket;
             }
           } catch (e) {
-            console.error(
-              '[useRecentTicket] Error processing realtime update:',
-              e
-            );
+            console.error('[useRecentTicket] Error processing realtime update:', e);
           }
         }
       )

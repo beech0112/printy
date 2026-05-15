@@ -20,27 +20,28 @@ export async function getAdminUserId(): Promise<string> {
     throw new Error('Not authenticated');
   }
 
-  // Verify this auth user is an admin in public.customer and return the same UUID
+  // Verify this auth user is an admin in public.profiles and return the same UUID
   const { data, error } = await supabase
-    .from('customer')
-    .select('customer_id, customer_type')
-    .eq('customer_id', user.id)
+    .from('profiles')
+    .select('id, role')
+    .eq('id', user.id)
     .single();
 
   if (error || !data) {
     console.error(
-      '[getAdminUserId] Error fetching customer record for current user:',
+      '[getAdminUserId] Error fetching profile record for current user:',
       error
     );
     throw new Error('Failed to resolve current user');
   }
 
-  if (data.customer_type !== 'admin') {
+  const role = String((data as any).role || '').toLowerCase();
+  if (role !== 'admin' && role !== 'superadmin') {
     console.error('[getAdminUserId] Current user is not an admin');
     throw new Error('Forbidden: user is not an admin');
   }
 
-  return data.customer_id;
+  return (data as any).id;
 }
 
 /**
@@ -48,21 +49,17 @@ export async function getAdminUserId(): Promise<string> {
  * Used for creating notifications to all admins
  */
 export async function getAllAdminIds(): Promise<string[]> {
-  // Use RPC function to bypass RLS (same as working quote actions)
-  const { data: admins, error: adminError } = await supabase.rpc(
-    'get_admin_customer_ids'
-  );
+  const { data: admins, error: adminError } = await supabase
+    .from('profiles')
+    .select('id')
+    .in('role', ['admin', 'superadmin']);
 
   if (adminError || !admins) {
     console.error('[getAllAdminIds] Error fetching admin users:', adminError);
     throw new Error('Failed to fetch admin users');
   }
 
-  const adminIds = admins.map(
-    (admin: { customer_id: string }) => admin.customer_id
-  );
-
-  return adminIds;
+  return admins.map((admin: any) => admin.id);
 }
 
 /**
@@ -74,24 +71,23 @@ export async function getAdminUserInfo(
   adminId: string
 ): Promise<{ first_name: string; last_name: string; fullName: string } | null> {
   try {
-    // Use RPC function to bypass RLS - this allows customers to see admin names
-    const { data: adminData, error: adminError } = await supabase.rpc(
-      'get_admin_name_by_id',
-      { p_admin_id: adminId }
-    );
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('first_name, last_name')
+      .eq('id', adminId)
+      .single();
 
-    if (adminError || !adminData) {
-      console.error(
-        '[getAdminUserInfo] Error fetching admin user:',
-        adminError
-      );
+    if (error || !data) {
+      console.error('[getAdminUserInfo] Error fetching admin user:', error);
       return null;
     }
 
+    const first_name = (data as any).first_name || '';
+    const last_name = (data as any).last_name || '';
     return {
-      first_name: (adminData as any).first_name || '',
-      last_name: (adminData as any).last_name || '',
-      fullName: (adminData as any).fullName || 'Admin',
+      first_name,
+      last_name,
+      fullName: [first_name, last_name].filter(Boolean).join(' ') || 'Admin',
     };
   } catch (error) {
     console.error('[getAdminUserInfo] Unexpected error:', error);
@@ -119,46 +115,24 @@ export async function getAdminUserInfoBatch(
   }
 
   try {
-    // Use RPC function to bypass RLS - this allows customers to see admin names
-    const { data: adminData, error: adminError } = await supabase.rpc(
-      'get_admin_names_batch',
-      { p_admin_ids: adminIds }
-    );
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, first_name, last_name')
+      .in('id', adminIds);
 
-    if (adminError) {
-      // If function doesn't exist yet (PostgREST cache not refreshed), log and return empty map
-      // This will cause messages to show "Admin" instead of admin names until cache refreshes
-      if (adminError.code === 'PGRST202') {
-        console.warn(
-          '[getAdminUserInfoBatch] Function not found in schema cache. PostgREST needs to refresh. ' +
-            'Run migration 033_reload_postgrest_cache_admin_functions.sql and wait 2-5 minutes.'
-        );
-      } else {
-        console.error(
-          '[getAdminUserInfoBatch] Error fetching admin users:',
-          adminError
-        );
-      }
+    if (error) {
+      console.error('[getAdminUserInfoBatch] Error fetching admin users:', error);
       return adminInfoMap;
     }
 
-    if (!adminData) {
-      return adminInfoMap;
-    }
-
-    // RPC returns JSON object keyed by admin ID
-    // Convert to Map for easier lookup
-    if (typeof adminData === 'object' && adminData !== null) {
-      for (const adminId of adminIds) {
-        const adminInfo = (adminData as any)[adminId];
-        if (adminInfo) {
-          adminInfoMap.set(adminId, {
-            first_name: adminInfo.first_name || '',
-            last_name: adminInfo.last_name || '',
-            fullName: adminInfo.fullName || 'Admin',
-          });
-        }
-      }
+    for (const row of data || []) {
+      const first_name = (row as any).first_name || '';
+      const last_name = (row as any).last_name || '';
+      adminInfoMap.set((row as any).id, {
+        first_name,
+        last_name,
+        fullName: [first_name, last_name].filter(Boolean).join(' ') || 'Admin',
+      });
     }
   } catch (error) {
     console.error('[getAdminUserInfoBatch] Unexpected error:', error);

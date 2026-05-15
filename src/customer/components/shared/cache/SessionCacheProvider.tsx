@@ -9,7 +9,6 @@ import React, {
 import type { ReactNode } from 'react';
 import { supabase } from '@lib/supabase';
 import type { ConversationItem } from '@features/chat/hooks/shared/useConversationState';
-import { getSessionTitle } from '@features/chat/config/sessionTitleConfig';
 
 interface SessionCacheContextValue {
   sessions: ConversationItem[];
@@ -33,6 +32,58 @@ const SessionCacheContext = createContext<SessionCacheContextValue | null>(
 interface SessionCacheProviderProps {
   children: ReactNode;
   customerId?: string;
+}
+
+const INQUIRY_SELECT = `
+  id,
+  display_id,
+  profile_id,
+  type,
+  status,
+  subject,
+  created_at,
+  updated_at,
+  resolved_at,
+  quotes(id, display_id, status, quoted_price, updated_at),
+  orders(id, display_id, status, updated_at)
+`.trim();
+
+function mapInquiryToConversation(row: any): ConversationItem {
+  const quote = Array.isArray(row.quotes) ? row.quotes[0] : row.quotes;
+  const order = Array.isArray(row.orders) ? row.orders[0] : row.orders;
+
+  const createdAt = new Date(row.created_at).getTime();
+
+  const timestamps: number[] = [createdAt];
+  if (row.updated_at) timestamps.push(new Date(row.updated_at).getTime());
+  if (row.resolved_at) timestamps.push(new Date(row.resolved_at).getTime());
+  if (quote?.updated_at) timestamps.push(new Date(quote.updated_at).getTime());
+  if (order?.updated_at) timestamps.push(new Date(order.updated_at).getTime());
+  const updatedAt = Math.max(...timestamps);
+
+  const displayId =
+    row.display_id ||
+    quote?.display_id ||
+    order?.display_id;
+
+  const title = row.subject || displayId || row.id.substring(0, 8).toUpperCase();
+
+  return {
+    id: row.id,
+    title,
+    createdAt,
+    updatedAt,
+    messages: [],
+    flowId: row.type || 'inquiry',
+    status: row.status === 'resolved' || row.status === 'closed' ? 'ended' : 'active',
+    icon: undefined,
+    context: {
+      inquiryId: row.id,
+      displayId,
+      quoteId: quote?.id,
+      orderId: order?.id,
+    },
+  };
 }
 
 export const SessionCacheProvider: React.FC<SessionCacheProviderProps> = ({
@@ -76,153 +127,27 @@ export const SessionCacheProvider: React.FC<SessionCacheProviderProps> = ({
     [sortSessions]
   );
 
-  // Helper function to process a single session from database
-  const processSession = useCallback(
-    (session: any): ConversationItem | null => {
-      // Defense-in-depth: Filter out ticket conversation sessions
-      const metadata = (session.metadata as any) || {};
-      if (metadata.ticket_conversation) {
-        return null;
-      }
-
-      // Generate session title - handle array types from Supabase joins
-      const inquiry = Array.isArray(session.inquiries_v2)
-        ? session.inquiries_v2[0]
-        : session.inquiries_v2;
-      const quote = Array.isArray(session.quotes)
-        ? session.quotes[0]
-        : session.quotes;
-      const order = Array.isArray(session.orders)
-        ? session.orders[0]
-        : session.orders;
-
-      const sessionTitle = getSessionTitle({
-        flowId: session.flow_id || 'about',
-        metadata: {
-          ...metadata,
-          context: {
-            ...metadata.context,
-            display_id:
-              metadata.context?.display_id ||
-              inquiry?.display_id ||
-              quote?.display_id ||
-              order?.display_id,
-          },
-        },
-        inquiry: inquiry,
-        quote: quote,
-        order: order,
-      });
-
-      const timestamps: number[] = [];
-
-      const createdAt = new Date(session.created_at).getTime();
-      timestamps.push(createdAt);
-
-      if (session.ended_at) {
-        timestamps.push(new Date(session.ended_at).getTime());
-      }
-
-      if (inquiry?.updated_at) {
-        timestamps.push(new Date(inquiry.updated_at).getTime());
-      }
-
-      if (quote?.updated_at) {
-        timestamps.push(new Date(quote.updated_at).getTime());
-      }
-
-      if (order?.updated_at) {
-        timestamps.push(new Date(order.updated_at).getTime());
-      }
-
-      if (inquiry?.resolved_at) {
-        timestamps.push(new Date(inquiry.resolved_at).getTime());
-      }
-
-      const updatedAt =
-        timestamps.length > 0 ? Math.max(...timestamps) : createdAt;
-
-      return {
-        id: session.session_id,
-        title: sessionTitle,
-        createdAt,
-        updatedAt,
-        messages: [], // Messages will be loaded when switching to conversation
-        flowId: session.flow_id || 'about',
-        status: session.status === 'ended' ? 'ended' : 'active',
-        icon: undefined,
-        context: {
-          orderId: session.order_id,
-          inquiryId: session.inquiry_id,
-          quoteId: session.quote_id,
-          displayId:
-            metadata.context?.display_id ||
-            inquiry?.display_id ||
-            quote?.display_id ||
-            order?.display_id,
-        },
-      };
-    },
-    []
-  );
-
-  // Helper function to fetch a single session with all relationships
   const fetchSingleSession = useCallback(
-    async (sessionId: string): Promise<ConversationItem | null> => {
+    async (inquiryId: string): Promise<ConversationItem | null> => {
       try {
-        const { data: sessionData, error: sessionError } = await supabase
-          .from('chat_sessions_v2')
-          .select(
-            `
-            session_id,
-            flow_id,
-            customer_id,
-            status,
-            created_at,
-            ended_at,
-            metadata,
-            inquiry_id,
-            quote_id,
-            order_id,
-            display_title,
-            inquiries_v2!chat_sessions_v2_inquiry_id_fkey (
-              inquiry_id,
-              display_id,
-              inquiry_type,
-            inquiry_status,
-            updated_at,
-            resolved_at
-            ),
-            quotes!chat_sessions_v2_quote_id_fkey (
-              quote_id,
-              display_id,
-            status,
-            updated_at
-            ),
-            orders!chat_sessions_v2_order_id_fkey (
-              order_id,
-              display_id,
-              status,
-            total_amount,
-            updated_at
-            )
-          `
-          )
-          .eq('session_id', sessionId)
+        const { data, error: fetchError } = await supabase
+          .from('inquiries')
+          .select(INQUIRY_SELECT)
+          .eq('id', inquiryId)
           .single();
 
-        if (sessionError || !sessionData) {
-          console.error('Error fetching single session:', sessionError);
+        if (fetchError || !data) {
+          console.error('Error fetching single inquiry:', fetchError);
           return null;
         }
 
-        return processSession(sessionData);
+        return mapInquiryToConversation(data);
       } catch (err) {
-        console.error('Failed to fetch single session:', err);
+        console.error('Failed to fetch single inquiry:', err);
         return null;
       }
     },
-    [processSession]
+    []
   );
 
   const loadSessions = useCallback(
@@ -244,77 +169,37 @@ export const SessionCacheProvider: React.FC<SessionCacheProviderProps> = ({
       const rangeTo = currentOffset + PAGE_SIZE - 1;
 
       try {
-        const { data: sessionData, error: sessionError } = await supabase
-          .from('chat_sessions_v2')
-          .select(
-            `
-          session_id,
-          flow_id,
-          customer_id,
-          status,
-          created_at,
-          ended_at,
-          metadata,
-          inquiry_id,
-          quote_id,
-          order_id,
-          display_title,
-          inquiries_v2!chat_sessions_v2_inquiry_id_fkey (
-            inquiry_id,
-            display_id,
-            inquiry_type,
-            inquiry_status,
-            updated_at,
-            resolved_at
-          ),
-          quotes!chat_sessions_v2_quote_id_fkey (
-            quote_id,
-            display_id,
-            status,
-            updated_at
-          ),
-          orders!chat_sessions_v2_order_id_fkey (
-            order_id,
-            display_id,
-            status,
-            total_amount,
-            updated_at
-          )
-        `
-          )
-          .eq('customer_id', customerId)
-          .is('metadata->ticket_conversation', null)
+        const { data, error: fetchError } = await supabase
+          .from('inquiries')
+          .select(INQUIRY_SELECT)
+          .eq('profile_id', customerId)
           .order('created_at', { ascending: false })
           .range(rangeFrom, rangeTo);
 
-        if (sessionError) {
-          console.error('Error loading sessions:', sessionError);
-          setError(sessionError.message);
+        if (fetchError) {
+          console.error('Error loading inquiries:', fetchError);
+          setError(fetchError.message);
           return;
         }
 
-        const processedSessions: ConversationItem[] = (sessionData || [])
-          .map(processSession)
-          .filter((session): session is ConversationItem => session !== null);
+        const processed: ConversationItem[] = (data || []).map(
+          mapInquiryToConversation
+        );
 
         if (reset) {
-          replaceSessions(processedSessions);
-        } else if (processedSessions.length > 0) {
+          replaceSessions(processed);
+        } else if (processed.length > 0) {
           updateSessionsList(prev => {
-            const existingIds = new Set(prev.map(session => session.id));
-            const appended = processedSessions.filter(
-              session => !existingIds.has(session.id)
-            );
-            if (appended.length === 0) {
-              return prev;
-            }
+            const existingIds = new Set(prev.map(s => s.id));
+            const appended = processed.filter(s => !existingIds.has(s.id));
+            if (appended.length === 0) return prev;
             return [...prev, ...appended];
           });
         }
 
-        setHasMore((sessionData?.length ?? 0) === PAGE_SIZE);
+        setHasMore((data?.length ?? 0) === PAGE_SIZE);
       } catch (err) {
-        console.error('Failed to load sessions:', err);
+        console.error('Failed to load inquiries:', err);
         setError(err instanceof Error ? err.message : 'Unknown error');
       } finally {
         if (reset) {
@@ -324,117 +209,65 @@ export const SessionCacheProvider: React.FC<SessionCacheProviderProps> = ({
         }
       }
     },
-    [customerId, processSession, replaceSessions, updateSessionsList]
+    [customerId, replaceSessions, updateSessionsList]
   );
 
-  // Load sessions when customerId changes
   useEffect(() => {
     if (customerId) {
       void loadSessions({ reset: true });
     }
   }, [customerId, loadSessions]);
 
-  // Real-time subscription for chat_sessions_v2 changes
+  // Real-time subscription for inquiries changes
   useEffect(() => {
     if (!customerId) return;
 
     const channel = supabase
-      .channel('chat_sessions_v2-customer-changes')
+      .channel(`inquiries-cache-${customerId}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
-          table: 'chat_sessions_v2',
-          filter: `customer_id=eq.${customerId}`,
+          table: 'inquiries',
+          filter: `profile_id=eq.${customerId}`,
         },
         async payload => {
-          const sessionId =
-            (payload.new as any)?.session_id ||
-            (payload.old as any)?.session_id;
+          const inquiryId =
+            (payload.new as any)?.id || (payload.old as any)?.id;
 
-          if (!sessionId) return;
+          if (!inquiryId) return;
 
-          // Handle different event types efficiently
           if (payload.eventType === 'DELETE') {
-            // Remove session from state
-            updateSessionsList(prev => prev.filter(s => s.id !== sessionId));
+            updateSessionsList(prev => prev.filter(s => s.id !== inquiryId));
             return;
           }
 
           if (payload.eventType === 'INSERT') {
-            // Fetch the new session with all relationships
-            const newSession = await fetchSingleSession(sessionId);
+            const newSession = await fetchSingleSession(inquiryId);
             if (newSession) {
               updateSessionsList(prev => {
-                const without = prev.filter(s => s.id !== sessionId);
-                const next = [newSession, ...without];
-                return next;
+                const without = prev.filter(s => s.id !== inquiryId);
+                return [newSession, ...without];
               });
             } else {
-              // Fallback to full reload if single fetch fails
               void loadSessions({ reset: true });
             }
             return;
           }
 
           if (payload.eventType === 'UPDATE') {
-            const newData = payload.new as any;
-            const oldData = payload.old as any;
-
-            // Check if this is a ticket conversation (should be filtered out)
-            const metadata = (newData.metadata as any) || {};
-            if (metadata.ticket_conversation) {
-              // Remove if it was previously visible
-              updateSessionsList(prev => prev.filter(s => s.id !== sessionId));
-              return;
-            }
-
-            // For status updates, we can update directly without fetching
-            // But if other fields changed that affect title, we need to fetch
-            const statusChanged = newData.status !== oldData.status;
-            const metadataChanged =
-              JSON.stringify(newData.metadata) !==
-              JSON.stringify(oldData.metadata);
-            const fkChanged =
-              newData.inquiry_id !== oldData.inquiry_id ||
-              newData.quote_id !== oldData.quote_id ||
-              newData.order_id !== oldData.order_id;
-
-            // If only status changed, update directly (most common case)
-            if (statusChanged && !metadataChanged && !fkChanged) {
-              const endedAtTs = newData.ended_at
-                ? new Date(newData.ended_at).getTime()
-                : undefined;
-              updateSessionsList(prev =>
-                prev.map(s =>
-                  s.id === sessionId
-                    ? {
-                        ...s,
-                        status: newData.status === 'ended' ? 'ended' : 'active',
-                        updatedAt: endedAtTs ?? Date.now(),
-                      }
-                    : s
-                )
-              );
-              return;
-            }
-
-            // If other fields changed, fetch full session to get updated title/relationships
-            const updatedSession = await fetchSingleSession(sessionId);
+            const updatedSession = await fetchSingleSession(inquiryId);
             if (updatedSession) {
               updateSessionsList(prev => {
-                const found = prev.some(s => s.id === sessionId);
-                if (!found) {
-                  const next = [updatedSession, ...prev];
-                  return next;
-                }
-                return prev.map(s => (s.id === sessionId ? updatedSession : s));
+                const found = prev.some(s => s.id === inquiryId);
+                if (!found) return [updatedSession, ...prev];
+                return prev.map(s =>
+                  s.id === inquiryId ? updatedSession : s
+                );
               });
             } else {
-              // If fetch failed or session was filtered out, remove it
-              updateSessionsList(prev => prev.filter(s => s.id !== sessionId));
-              void loadSessions({ reset: true });
+              updateSessionsList(prev => prev.filter(s => s.id !== inquiryId));
             }
           }
         }
@@ -444,38 +277,30 @@ export const SessionCacheProvider: React.FC<SessionCacheProviderProps> = ({
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [customerId, fetchSingleSession, loadSessions]);
+  }, [customerId, fetchSingleSession, loadSessions, updateSessionsList]);
 
-  // Refetch function for manual refresh
   const refetch = () => {
     void loadSessions({ reset: true });
   };
 
   const loadMore = () => {
-    if (loading || isLoadingMore || !hasMore) {
-      return;
-    }
+    if (loading || isLoadingMore || !hasMore) return;
     void loadSessions({ reset: false });
   };
 
-  // Add new session to cache
   const addSession = (newSession: ConversationItem) => {
     updateSessionsList(prev => {
-      const without = prev.filter(session => session.id !== newSession.id);
-      const next = [newSession, ...without];
-      return next;
+      const without = prev.filter(s => s.id !== newSession.id);
+      return [newSession, ...without];
     });
   };
 
-  // Update existing session in cache
   const updateSession = (
     sessionId: string,
     updates: Partial<ConversationItem>
   ) => {
     updateSessionsList(prev =>
-      prev.map(session =>
-        session.id === sessionId ? { ...session, ...updates } : session
-      )
+      prev.map(s => (s.id === sessionId ? { ...s, ...updates } : s))
     );
   };
 
@@ -512,10 +337,9 @@ export const useSessionCache = (): SessionCacheContextValue => {
 export const useCustomerSessionCache = (customerId?: string) => {
   const sessionCache = useSessionCache();
 
-  // Filter sessions by current customer if needed
   const customerSessions = customerId
     ? sessionCache.sessions.filter(
-        session => session.context?.orderId || session.flowId !== 'about' // Keep sessions that have orders // Exclude general "about" sessions
+        session => session.context?.orderId || session.flowId !== 'about'
       )
     : sessionCache.sessions;
 

@@ -1,52 +1,83 @@
 /**
  * useAdminOrders
- * Fetches all orders from orders table for admin view
- * Similar to customer useRecentOrder but fetches all orders with pagination
+ * Fetches all orders from Supabase orders table for admin view.
  */
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '@lib/supabase';
 
-export interface AdminOrderData {
-  order_id: string;
-  display_id?: string;
-  customer_id: string;
-  status: string;
-  created_at: string;
-  updated_at: string;
-  total_amount: number;
-  currency: string;
-  order_specs: any;
-  payment_proof?: string;
-  payment_verified_at?: string;
-  customer?: {
-    first_name?: string;
-    last_name?: string;
-  };
-}
-
 export interface AdminOrderRow {
   id: string;
-  order_id: string; // The actual UUID for database operations
-  display_id?: string;
+  order_id: string;
+  display_id: string;
   customer_id: string;
   customer_name: string;
   customer_type: string;
   product_name: string;
   total_amount: string;
   status: string;
+  payment_status: string;
   created_at: string;
   updated_at: string;
-  completed_at?: string;
   updated_by?: string | null;
-  // Legacy fields for backward compatibility
+  // legacy compat
   customer: string;
   total: string;
   date: string;
   proofOfPaymentUrl?: string;
-  proofUploadedAt?: string;
 }
 
 const DEFAULT_PAGE_SIZE = 25;
+
+const SELECT = `
+  id,
+  display_id,
+  profile_id,
+  status,
+  payment_status,
+  total_amount,
+  proof_files,
+  created_at,
+  updated_at,
+  updated_by,
+  profiles:profile_id(first_name, last_name, email, customer_type),
+  inquiries:inquiry_id(subject)
+`.trim();
+
+const normalizeRow = (order: any): AdminOrderRow => {
+  const profile = Array.isArray(order.profiles) ? order.profiles[0] : order.profiles;
+  const firstName = profile?.first_name || '';
+  const lastName = profile?.last_name || '';
+  const customerName = `${firstName} ${lastName}`.trim() || profile?.email || order.profile_id;
+
+  const inquiry = Array.isArray(order.inquiries) ? order.inquiries[0] : order.inquiries;
+  const productName = inquiry?.subject || `Order ${order.display_id || order.id}`;
+
+  const proofFiles: string[] = order.proof_files || [];
+
+  return {
+    id: order.id,
+    order_id: order.id,
+    display_id: order.display_id || order.id,
+    customer_id: order.profile_id,
+    customer_name: customerName,
+    customer_type: profile?.customer_type || 'regular',
+    product_name: productName,
+    total_amount: `₱${Number(order.total_amount || 0).toLocaleString()}`,
+    status: order.status,
+    payment_status: order.payment_status || 'pending',
+    created_at: order.created_at,
+    updated_at: order.updated_at,
+    updated_by: order.updated_by || null,
+    customer: customerName,
+    total: `₱${Number(order.total_amount || 0).toLocaleString()}`,
+    date: new Date(order.created_at).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    }),
+    proofOfPaymentUrl: proofFiles[0] || undefined,
+  };
+};
 
 export function useAdminOrders(pageSize: number = DEFAULT_PAGE_SIZE) {
   const [orders, setOrders] = useState<AdminOrderRow[]>([]);
@@ -61,281 +92,74 @@ export function useAdminOrders(pageSize: number = DEFAULT_PAGE_SIZE) {
   const fetchPage = useCallback(
     async (page: number, replaceExisting: boolean = page === 1) => {
       const from = (page - 1) * pageSize;
-
-      if (replaceExisting) {
-        setLoading(true);
-      } else {
-        setLoadingMore(true);
-      }
+      if (replaceExisting) setLoading(true);
+      else setLoadingMore(true);
 
       try {
-        const { data, error, count } = await supabase
+        const { data, error: err, count } = await supabase
           .from('orders')
-          .select(
-            `
-          order_id,
-          display_id,
-          customer_id,
-          status,
-          created_at,
-          updated_at,
-          updated_by,
-          completed_at,
-          total_amount,
-          order_specs,
-          payment_proof,
-          payment_verified_at,
-          customer:customer_id(first_name, last_name, customer_type)
-        `,
-            { count: 'exact' }
-          )
+          .select(SELECT, { count: 'exact' })
           .order('updated_at', { ascending: false })
           .range(from, from + pageSize - 1);
 
-        if (error) {
-          console.error('[useAdminOrders] Error fetching orders:', error);
-          setError(error.message);
-          return;
-        }
+        if (err) { setError(err.message); return; }
 
-        const normalized: AdminOrderRow[] = (data || []).map((order: any) => {
-          // Handle customer data - it might be an array or object
-          const customerData = Array.isArray(order.customer)
-            ? order.customer[0]
-            : order.customer;
-          const customerName = customerData
-            ? `${customerData.first_name || ''} ${customerData.last_name || ''}`.trim() ||
-              'Unknown Customer'
-            : 'Unknown Customer';
-
-          // Extract product name from order_specs JSONB
-          const productName =
-            order.order_specs?.product_name || 'Unnamed Order';
-
-          // Use peso sign as default currency
-          const currencySymbol = '₱';
-
-          return {
-            id: order.order_id, // Use actual UUID for database operations
-            order_id: order.order_id, // Store the actual UUID separately
-            display_id: order.display_id,
-            customer_id: order.customer_id,
-            customer_name: customerName,
-            customer_type: customerData?.customer_type || 'regular',
-            product_name: productName,
-            total_amount: `${currencySymbol}${Number(order.total_amount).toLocaleString()}`,
-            status: order.status,
-            created_at: order.created_at,
-            updated_at: order.updated_at,
-            updated_by: order.updated_by || null,
-            completed_at: order.completed_at,
-            // Legacy fields for backward compatibility
-            customer: customerName,
-            total: `₱${Number(order.total_amount).toLocaleString()}`,
-            date: new Date(order.created_at).toLocaleDateString('en-US', {
-              year: 'numeric',
-              month: 'short',
-              day: 'numeric',
-            }),
-            proofOfPaymentUrl: order.payment_proof || undefined,
-            proofUploadedAt: order.payment_verified_at
-              ? new Date(order.payment_verified_at).toLocaleString('en-US', {
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric',
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })
-              : undefined,
-          };
-        });
-
+        const normalized = (data || []).map(normalizeRow);
         setTotalCount(count || 0);
         loadedPagesRef.current.add(page);
 
         setOrders(prev => {
-          if (replaceExisting) {
-            // Sort by updated_at descending (latest first)
-            return normalized.sort(
-              (a, b) =>
-                new Date(b.updated_at || 0).getTime() -
-                new Date(a.updated_at || 0).getTime()
-            );
-          }
+          if (replaceExisting) return normalized;
           const merged = [...prev];
           for (const row of normalized) {
-            const i = merged.findIndex(o => o.order_id === row.order_id);
+            const i = merged.findIndex(o => o.id === row.id);
             if (i >= 0) merged[i] = row;
             else merged.push(row);
           }
-          // Sort by updated_at descending (latest first)
           return merged.sort(
-            (a, b) =>
-              new Date(b.updated_at || 0).getTime() -
-              new Date(a.updated_at || 0).getTime()
+            (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
           );
         });
       } catch (e: any) {
-        console.error('[useAdminOrders] Unexpected error:', e);
-        setError(e?.message || 'Unknown error occurred');
+        setError(e?.message || 'Unknown error');
       } finally {
-        if (replaceExisting) {
-          setLoading(false);
-        } else {
-          setLoadingMore(false);
-        }
+        if (replaceExisting) setLoading(false);
+        else setLoadingMore(false);
       }
     },
     [pageSize]
   );
 
-  // Load orders on mount and when dependencies change
   useEffect(() => {
     loadedPagesRef.current.clear();
     void fetchPage(1, true);
     setCurrentPage(1);
   }, [fetchPage]);
 
-  // Real-time subscription for orders table changes with efficient local state merging
+  // Realtime
   useEffect(() => {
     const channel = supabase
-      .channel('orders-changes-admin')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'orders',
-        },
-        async payload => {
-          const orderId =
-            (payload.new as any)?.order_id || (payload.old as any)?.order_id;
-          if (!orderId) return;
-
-          // Handle DELETE: remove from local state
-          if (payload.eventType === 'DELETE') {
-            setOrders(prev => prev.filter(o => o.order_id !== orderId));
-            setTotalCount(prev => Math.max(0, prev - 1));
-            return;
-          }
-
-          // Handle INSERT/UPDATE: fetch single row with joins and merge into state
-          try {
-            const { data, error } = await supabase
-              .from('orders')
-              .select(
-                `
-                order_id,
-                display_id,
-                customer_id,
-                status,
-                created_at,
-                updated_at,
-              updated_by,
-                completed_at,
-                total_amount,
-                order_specs,
-                payment_proof,
-                payment_verified_at,
-                customer:customer_id(first_name, last_name, customer_type)
-              `
-              )
-              .eq('order_id', orderId)
-              .single();
-
-            if (error || !data) {
-              console.error(
-                '[useAdminOrders] Error fetching updated order:',
-                error
-              );
-              return;
-            }
-
-            // Normalize the fetched order
-            const customerData = Array.isArray(data.customer)
-              ? data.customer[0]
-              : data.customer;
-            const customerName = customerData
-              ? `${customerData.first_name || ''} ${customerData.last_name || ''}`.trim() ||
-                'Unknown Customer'
-              : 'Unknown Customer';
-            const productName =
-              data.order_specs?.product_name || 'Unnamed Order';
-            const currencySymbol = '₱';
-
-            const normalizedOrder: AdminOrderRow = {
-              id: data.order_id,
-              order_id: data.order_id,
-              display_id: data.display_id,
-              customer_id: data.customer_id,
-              customer_name: customerName,
-              customer_type: customerData?.customer_type || 'regular',
-              product_name: productName,
-              total_amount: `${currencySymbol}${Number(data.total_amount).toLocaleString()}`,
-              status: data.status,
-              created_at: data.created_at,
-              updated_at: data.updated_at,
-              updated_by: data.updated_by || null,
-              completed_at: data.completed_at,
-              customer: customerName,
-              total: `₱${Number(data.total_amount).toLocaleString()}`,
-              date: new Date(data.created_at).toLocaleDateString('en-US', {
-                year: 'numeric',
-                month: 'short',
-                day: 'numeric',
-              }),
-              proofOfPaymentUrl: data.payment_proof || undefined,
-              proofUploadedAt: data.payment_verified_at
-                ? new Date(data.payment_verified_at).toLocaleString('en-US', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })
-                : undefined,
-            };
-
-            // Merge into state
-            setOrders(prev => {
-              const existingIndex = prev.findIndex(o => o.order_id === orderId);
-              if (existingIndex >= 0) {
-                // Update existing order
-                const updated = [...prev];
-                updated[existingIndex] = normalizedOrder;
-                // Sort by updated_at descending (latest first)
-                return updated.sort(
-                  (a, b) =>
-                    new Date(b.updated_at || 0).getTime() -
-                    new Date(a.updated_at || 0).getTime()
-                );
-              } else {
-                // Insert new order and sort by updated_at descending (latest first)
-                return [normalizedOrder, ...prev].sort(
-                  (a, b) =>
-                    new Date(b.updated_at || 0).getTime() -
-                    new Date(a.updated_at || 0).getTime()
-                );
-              }
-            });
-
-            // Update total count for new inserts
-            if (payload.eventType === 'INSERT') {
-              setTotalCount(prev => prev + 1);
-            }
-          } catch (e) {
-            console.error(
-              '[useAdminOrders] Error processing realtime update:',
-              e
-            );
-          }
+      .channel('admin-orders-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, async payload => {
+        const id = (payload.new as any)?.id || (payload.old as any)?.id;
+        if (!id) return;
+        if (payload.eventType === 'DELETE') {
+          setOrders(prev => prev.filter(o => o.id !== id));
+          setTotalCount(prev => Math.max(0, prev - 1));
+          return;
         }
-      )
+        const { data } = await supabase.from('orders').select(SELECT).eq('id', id).single();
+        if (!data) return;
+        const normalized = normalizeRow(data);
+        setOrders(prev => {
+          const i = prev.findIndex(o => o.id === id);
+          if (i >= 0) { const next = [...prev]; next[i] = normalized; return next; }
+          if (payload.eventType === 'INSERT') setTotalCount(c => c + 1);
+          return [normalized, ...prev];
+        });
+      })
       .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
   const refresh = useCallback(() => {
@@ -345,12 +169,13 @@ export function useAdminOrders(pageSize: number = DEFAULT_PAGE_SIZE) {
   }, [fetchPage]);
 
   const hasMore = totalCount > orders.length;
+
   const loadMore = useCallback(async () => {
     if (!hasMore || loadingMore) return;
-    const nextPage = currentPage + 1;
-    if (loadedPagesRef.current.has(nextPage)) return;
-    await fetchPage(nextPage, false);
-    setCurrentPage(nextPage);
+    const next = currentPage + 1;
+    if (loadedPagesRef.current.has(next)) return;
+    await fetchPage(next, false);
+    setCurrentPage(next);
   }, [currentPage, fetchPage, hasMore, loadingMore]);
 
   const loadAll = useCallback(async () => {
@@ -358,27 +183,14 @@ export function useAdminOrders(pageSize: number = DEFAULT_PAGE_SIZE) {
     setLoadingAll(true);
     try {
       const totalPages = Math.ceil(totalCount / pageSize);
-      for (let p = currentPage + 1; p <= totalPages; p += 1) {
+      for (let p = currentPage + 1; p <= totalPages; p++) {
         if (loadedPagesRef.current.has(p)) continue;
         await fetchPage(p, false);
       }
-    } finally {
-      setLoadingAll(false);
-    }
+    } finally { setLoadingAll(false); }
   }, [currentPage, fetchPage, hasMore, loadingAll, pageSize, totalCount]);
 
-  return {
-    orders,
-    loading,
-    error,
-    totalCount,
-    hasMore,
-    loadMore,
-    loadAll,
-    loadingMore,
-    loadingAll,
-    refresh,
-  };
+  return { orders, loading, error, totalCount, hasMore, loadMore, loadAll, loadingMore, loadingAll, refresh };
 }
 
 export default useAdminOrders;

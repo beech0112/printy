@@ -229,9 +229,8 @@ const CustomerTypeManagement: React.FC<CustomerTypeManagementProps> = ({
   const formatAddress = (address: CustomerProfile['address']): string => {
     if (!address) return 'No address on file';
     const parts: string[] = [];
-    if (address.building_name) parts.push(address.building_name);
-    if (address.street_name) parts.push(address.street_name);
-    if (address.barangay_name) parts.push(address.barangay_name);
+    if (address.street) parts.push(address.street);
+    if (address.barangay) parts.push(address.barangay);
     if (address.city_name) parts.push(address.city_name);
     if (address.province_name) parts.push(address.province_name);
     if (address.region_name) parts.push(address.region_name);

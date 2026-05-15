@@ -26,73 +26,35 @@ export interface QuoteDetailsData {
  * Fetch original customer messages from a quote session
  */
 export async function fetchOriginalCustomerRequest(
-  sessionId: string
+  inquiryId: string
 ): Promise<string> {
   try {
-    const { data: allMessages, error } = await supabase.rpc(
-      'api_fetch_chat_messages_v2',
-      { p_session_id: sessionId }
-    );
+    const { data, error } = await supabase
+      .from('inquiries')
+      .select('subject, ai_context')
+      .eq('id', inquiryId)
+      .single();
 
-    if (error || !allMessages || !Array.isArray(allMessages)) {
+    if (error || !data) {
       console.error(
-        '[fetchOriginalCustomerRequest] Error fetching messages:',
+        '[fetchOriginalCustomerRequest] Error fetching inquiry:',
         error
       );
       return 'No original request found.';
     }
 
-    const customerOnlyMessages = (allMessages as any[]).filter(
-      (m: any) => m.sender_role === 'customer'
-    );
+    const parts: string[] = [];
 
-    if (customerOnlyMessages.length === 0) {
-      return 'No original request found.';
+    if ((data as any).subject) {
+      parts.push((data as any).subject);
     }
 
-    // Filter out upload-related content: image URLs and quick reply options
-    const orderUploadRegex = /supabase:\/\/order-uploads\/[^\s,"')\]]+/gi;
-
-    // Quick reply phrases to filter out (case-insensitive)
-    const quickReplyPhrases = [
-      "No, let's continue",
-      'No, lets continue',
-      "No let's continue",
-      'No lets continue',
-      'Yes, upload files',
-      'Yes upload files',
-      'Yes, upload file',
-      'Yes upload file',
-      'No, continue without image',
-      'No continue without image',
-    ];
-
-    const cleanedMessages = customerOnlyMessages
-      .map((m: any) => {
-        let text = String(m.message_text || '').trim();
-
-        // Remove image URLs
-        text = text.replace(orderUploadRegex, '').trim();
-
-        // Remove quick reply phrases directly from text
-        quickReplyPhrases.forEach(phrase => {
-          // Remove the phrase (case-insensitive) with surrounding whitespace/newlines
-          const regex = new RegExp(
-            `\\s*${phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`,
-            'gi'
-          );
-          text = text.replace(regex, ' ').trim();
-        });
-
-        return text.trim();
-      })
-      .filter(text => text.length > 0); // Remove empty messages after cleaning
-
-    if (cleanedMessages.length === 0) {
-      return 'No original request found.';
+    const ctx = (data as any).ai_context;
+    if (ctx && typeof ctx === 'object' && ctx.customer_message) {
+      parts.push(String(ctx.customer_message));
     }
 
-    return cleanedMessages.join('\n');
+    return parts.length > 0 ? parts.join('\n') : 'No original request found.';
   } catch (error) {
     console.error('[fetchOriginalCustomerRequest] Unexpected error:', error);
     return 'No original request found.';
@@ -103,38 +65,28 @@ export async function fetchOriginalCustomerRequest(
  * Fetch latest proposal for a quote session
  */
 export async function fetchLatestProposal(
-  sessionId: string
+  inquiryId: string
 ): Promise<QuoteDetailsData['proposal']> {
   try {
-    const { data: proposals, error } = await supabase
-      .from('quote_proposals')
-      .select(
-        `
-        proposal_id,
-        spec_final,
-        quoted_price,
-        notes,
-        created_at
-      `
-      )
-      .eq('session_id', sessionId)
-      .order('created_at', { ascending: false })
+    const { data: quoteRows, error } = await supabase
+      .from('quotes')
+      .select('id, spec_final, quoted_price, admin_notes, proposal_sent_at')
+      .eq('inquiry_id', inquiryId)
+      .not('proposal_sent_at', 'is', null)
+      .order('proposal_sent_at', { ascending: false })
       .limit(1);
 
-    if (error || !proposals || proposals.length === 0) {
+    if (error || !quoteRows || quoteRows.length === 0) {
       return null;
     }
 
-    const proposal = proposals[0];
-    // Prefer admin_notes nested inside spec_final if present; fallback to top-level notes
-    const adminNotes =
-      (proposal?.spec_final as any)?.admin_notes || proposal?.notes || '';
+    const q = quoteRows[0];
     return {
-      proposalId: proposal.proposal_id,
-      specFinal: proposal.spec_final || {},
-      quotedPrice: proposal.quoted_price,
-      notes: adminNotes,
-      createdAt: proposal.created_at,
+      proposalId: q.id,
+      specFinal: q.spec_final || {},
+      quotedPrice: q.quoted_price,
+      notes: q.admin_notes || '',
+      createdAt: q.proposal_sent_at,
     };
   } catch (error) {
     console.error('[fetchLatestProposal] Unexpected error:', error);

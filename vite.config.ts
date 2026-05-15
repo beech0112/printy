@@ -205,7 +205,7 @@ const cohereProxyPlugin = () => {
             }));
 
             const response = await cohere.chat({
-              model: 'command-a-03-2025',
+              model: 'command-r-08-2024',
               preamble: finalSystemPrompt,
               chatHistory,
               message: userMessage,

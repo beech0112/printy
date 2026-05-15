@@ -77,6 +77,21 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
         return;
       }
 
+      // Prefer direct IDs if already available
+      if (value.regionId) {
+        setSelectedRegionId(value.regionId);
+        setSelectedRegionLabel(value.region);
+        if (value.provinceId) {
+          setSelectedProvinceId(value.provinceId);
+          setSelectedProvinceLabel(value.province);
+          if (value.cityId) {
+            setSelectedCityId(value.cityId);
+            setSelectedCityLabel(value.city);
+          }
+        }
+        return;
+      }
+
       // Find region ID and set label
       if (value.region) {
         const regionId = await findRegionIdByName(value.region);
@@ -188,9 +203,14 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
   };
 
   const handleConfirmSave = () => {
-    // Normalize phone number before saving (remove space, ensure +639XXXXXXXXX format)
     const normalizedPhone = normalizePhone(form.phone);
-    const formToSave = { ...form, phone: normalizedPhone };
+    const formToSave = {
+      ...form,
+      phone: normalizedPhone,
+      regionId: selectedRegionId,
+      provinceId: selectedProvinceId,
+      cityId: selectedCityId,
+    };
     setConfirmOpen(false);
     onSave(formToSave);
     setIsEditing(false);

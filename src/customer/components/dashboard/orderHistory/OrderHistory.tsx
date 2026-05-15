@@ -285,18 +285,16 @@ const OrderHistory: React.FC = () => {
           .from('orders')
           .select(
             `
-            order_id,
+            id,
             display_id,
             status,
+            payment_status,
             created_at,
             updated_at,
-            total_amount,
-            order_specs,
-            payment_verified_at,
-            completed_at
+            total_amount
           `
           )
-          .eq('customer_id', customerId)
+          .eq('profile_id', customerId)
           .order('updated_at', { ascending: false })
           .range(rangeFrom, rangeTo);
 
@@ -305,23 +303,19 @@ const OrderHistory: React.FC = () => {
           return;
         }
 
-        const orderList: Order[] = (data || []).map(order => ({
-          id: order.order_id,
-          title: order.order_specs?.product_name || 'Order',
+        const orderList: Order[] = ((data || []) as any[]).map(order => ({
+          id: order.id,
+          title: 'Order',
           createdAt: new Date(order.created_at).getTime(),
           updatedAt: new Date(order.updated_at).getTime(),
           status: order.status,
-          displayId: order.display_id || order.order_id,
+          displayId: order.display_id || order.id,
           total: order.total_amount
             ? `₱${Number(order.total_amount).toLocaleString()}`
             : undefined,
-          order_specs: order.order_specs,
-          paymentVerifiedAt: order.payment_verified_at
-            ? new Date(order.payment_verified_at).getTime()
-            : undefined,
-          completedAt: order.completed_at
-            ? new Date(order.completed_at).getTime()
-            : undefined,
+          order_specs: undefined,
+          paymentVerifiedAt: undefined,
+          completedAt: undefined,
         }));
 
         if (reset) {
@@ -392,18 +386,16 @@ const OrderHistory: React.FC = () => {
           .from('orders')
           .select(
             `
-            order_id,
+            id,
             display_id,
             status,
+            payment_status,
             created_at,
             updated_at,
-            total_amount,
-            order_specs,
-            payment_verified_at,
-            completed_at
+            total_amount
           `
           )
-          .eq('order_id', orderId)
+          .eq('id', orderId)
           .single();
 
         if (error || !data) {
@@ -411,23 +403,20 @@ const OrderHistory: React.FC = () => {
           return;
         }
 
+        const row = data as any;
         const order: Order = {
-          id: data.order_id,
-          title: data.order_specs?.product_name || 'Order',
-          createdAt: new Date(data.created_at).getTime(),
-          updatedAt: new Date(data.updated_at).getTime(),
-          status: data.status,
-          displayId: data.display_id || data.order_id,
-          total: data.total_amount
-            ? `₱${Number(data.total_amount).toLocaleString()}`
+          id: row.id,
+          title: 'Order',
+          createdAt: new Date(row.created_at).getTime(),
+          updatedAt: new Date(row.updated_at).getTime(),
+          status: row.status,
+          displayId: row.display_id || row.id,
+          total: row.total_amount
+            ? `₱${Number(row.total_amount).toLocaleString()}`
             : undefined,
-          order_specs: data.order_specs,
-          paymentVerifiedAt: data.payment_verified_at
-            ? new Date(data.payment_verified_at).getTime()
-            : undefined,
-          completedAt: data.completed_at
-            ? new Date(data.completed_at).getTime()
-            : undefined,
+          order_specs: undefined,
+          paymentVerifiedAt: undefined,
+          completedAt: undefined,
         };
 
         setOrders(prev => {
@@ -460,11 +449,11 @@ const OrderHistory: React.FC = () => {
           event: '*',
           schema: 'public',
           table: 'orders',
-          filter: `customer_id=eq.${customerId}`,
+          filter: `profile_id=eq.${customerId}`,
         },
         async payload => {
           const orderId =
-            (payload.new as any)?.order_id || (payload.old as any)?.order_id;
+            (payload.new as any)?.id || (payload.old as any)?.id;
           if (!orderId) return;
 
           // Handle DELETE: remove from local state

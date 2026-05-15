@@ -222,22 +222,9 @@ const TicketHistory: React.FC = () => {
           currentConversation?.context?.inquiryId ||
           currentConversation?.context?.inquiry_id;
 
-        // 2. If not in context, fetch from session's FK column
+        // 2. If not in context, no fallback available (sessions are stateless)
         if (!inquiryId) {
-          try {
-            const { data: sessionData } = await supabase
-              .from('chat_sessions_v2')
-              .select('inquiry_id, metadata')
-              .eq('session_id', activeId)
-              .single();
-
-            inquiryId =
-              sessionData?.inquiry_id ||
-              sessionData?.metadata?.context?.inquiryId ||
-              sessionData?.metadata?.context?.inquiry_id;
-          } catch (error) {
-            console.error('Error fetching inquiry ID from session:', error);
-          }
+          console.warn('No inquiry ID found in conversation context for', activeId);
         }
 
         if (inquiryId && typeof inquiryId === 'string') {
@@ -310,22 +297,20 @@ const TicketHistory: React.FC = () => {
         const rangeTo = rangeFrom + PAGE_SIZE - 1;
 
         const { data, error } = await supabase
-          .from('inquiries_v2')
+          .from('inquiries')
           .select(
             `
-            inquiry_id,
+            id,
             display_id,
-            inquiry_status,
-            received_at,
+            status,
+            created_at,
             updated_at,
             resolved_at,
-            inquiry_type,
-            customer_id,
-            order_id,
-            session_id
+            type,
+            profile_id
           `
           )
-          .eq('customer_id', customerId)
+          .eq('profile_id', customerId)
           .order('updated_at', { ascending: false })
           .range(rangeFrom, rangeTo);
 
@@ -334,25 +319,25 @@ const TicketHistory: React.FC = () => {
           return;
         }
 
-        const ticketList: Ticket[] = (data || []).map(ticket => {
-          const receivedAt = new Date(ticket.received_at).getTime();
+        const ticketList: Ticket[] = ((data || []) as any[]).map(ticket => {
+          const createdAt = new Date(ticket.created_at).getTime();
           const updatedAt = ticket.updated_at
             ? new Date(ticket.updated_at).getTime()
-            : receivedAt;
+            : createdAt;
           const resolvedAt = ticket.resolved_at
             ? new Date(ticket.resolved_at).getTime()
             : undefined;
 
           return {
-            id: ticket.inquiry_id,
-            title: formatInquiryType(ticket.inquiry_type || 'other'),
-            createdAt: receivedAt,
+            id: ticket.id,
+            title: formatInquiryType(ticket.type || 'other'),
+            createdAt,
             updatedAt,
-            status: ticket.inquiry_status,
+            status: ticket.status,
             displayId:
               ticket.display_id ||
-              ticket.inquiry_id.substring(0, 8).toUpperCase(),
-            subject: formatInquiryType(ticket.inquiry_type || 'other'),
+              ticket.id.substring(0, 8).toUpperCase(),
+            subject: formatInquiryType(ticket.type || 'other'),
             description: undefined,
             resolvedAt,
             assignedTo: undefined,
@@ -395,24 +380,24 @@ const TicketHistory: React.FC = () => {
 
     const upsertFromPayload = (row: any) => {
       if (!row) return;
-      const receivedAt = row.received_at
-        ? new Date(row.received_at).getTime()
+      const createdAt = row.created_at
+        ? new Date(row.created_at).getTime()
         : Date.now();
       const updatedAt = row.updated_at
         ? new Date(row.updated_at).getTime()
-        : receivedAt;
+        : createdAt;
       const resolvedAt = row.resolved_at
         ? new Date(row.resolved_at).getTime()
         : undefined;
       const next: Ticket = {
-        id: row.inquiry_id,
-        title: formatInquiryType(row.inquiry_type || 'other'),
-        subject: formatInquiryType(row.inquiry_type || 'other'),
-        status: row.inquiry_status || 'unknown',
+        id: row.id,
+        title: formatInquiryType(row.type || 'other'),
+        subject: formatInquiryType(row.type || 'other'),
+        status: row.status || 'unknown',
         displayId:
           row.display_id ||
-          String(row.inquiry_id).substring(0, 8).toUpperCase(),
-        createdAt: receivedAt,
+          String(row.id).substring(0, 8).toUpperCase(),
+        createdAt,
         updatedAt,
         resolvedAt,
         assignedTo: undefined,
@@ -435,20 +420,20 @@ const TicketHistory: React.FC = () => {
     };
 
     const channel = supabase
-      .channel(`inquiries_v2-customer-${customerId}`)
+      .channel(`inquiries-customer-${customerId}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
-          table: 'inquiries_v2',
-          filter: `customer_id=eq.${customerId}`,
+          table: 'inquiries',
+          filter: `profile_id=eq.${customerId}`,
         },
         payload => {
           if (payload.eventType === 'DELETE') {
             const oldRow: any = payload.old;
-            if (!oldRow?.inquiry_id) return;
-            setTickets(prev => prev.filter(t => t.id !== oldRow.inquiry_id));
+            if (!oldRow?.id) return;
+            setTickets(prev => prev.filter(t => t.id !== oldRow.id));
             return;
           }
           upsertFromPayload(payload.new);

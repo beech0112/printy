@@ -7,6 +7,17 @@ import { supabase } from '@lib/supabase';
 import { formatCurrency } from '@shared/utils/priceFormatter';
 import type { RecentQuote } from '@shared/types/customer';
 
+const QUOTE_SELECT = `
+  id,
+  display_id,
+  status,
+  quoted_price,
+  accepted_at,
+  rejected_at,
+  created_at,
+  updated_at
+`.trim();
+
 export function useRecentQuote(customerId?: string) {
   const [data, setData] = useState<RecentQuote | null>(null);
   const [loading, setLoading] = useState(true);
@@ -39,47 +50,31 @@ export function useRecentQuote(customerId?: string) {
 
   // Normalization function
   const normalizeQuote = (rawData: any): RecentQuote => {
-    // Handle proposal data (can be array or single object)
-    const proposalsRaw = rawData.quote_proposals as any;
-    const proposals = Array.isArray(proposalsRaw)
-      ? proposalsRaw
-      : [proposalsRaw].filter(Boolean);
-    const quotedPrice =
-      proposals && proposals.length > 0
-        ? proposals[0]?.quoted_price
-        : undefined;
-
-    let formattedPrice: string | undefined;
-    if (quotedPrice) {
-      formattedPrice = formatCurrency(Number(quotedPrice));
-    }
+    const quotedPrice = rawData.quoted_price;
+    const formattedPrice =
+      quotedPrice != null ? formatCurrency(Number(quotedPrice)) : undefined;
 
     const createdAt = new Date(rawData.created_at).getTime();
     const updatedAt = rawData.updated_at
       ? new Date(rawData.updated_at).getTime()
       : createdAt;
-    const endedAt = rawData.ended_at
-      ? new Date(rawData.ended_at).getTime()
-      : undefined;
 
-    // Set acceptedAt or rejectedAt based on status
     const acceptedAt =
-      rawData.status === 'accepted'
-        ? updatedAt
-        : rawData.status === 'ended' && rawData.proposal_id
-          ? endedAt || updatedAt
-          : undefined;
-    const rejectedAt = rawData.status === 'rejected' ? updatedAt : undefined;
+      rawData.status === 'accepted' && rawData.accepted_at
+        ? new Date(rawData.accepted_at).getTime()
+        : undefined;
+    const rejectedAt =
+      rawData.status === 'rejected' && rawData.rejected_at
+        ? new Date(rawData.rejected_at).getTime()
+        : undefined;
 
     return {
-      id: rawData.quote_id,
-      displayId:
-        rawData.display_id || rawData.quote_id.slice(0, 8).toUpperCase(),
+      id: rawData.id,
+      displayId: rawData.display_id || rawData.id.slice(0, 8).toUpperCase(),
       status: rawData.status as any,
       quotedPrice: formattedPrice,
       createdAt,
       updatedAt,
-      endedAt,
       acceptedAt,
       rejectedAt,
     };
@@ -96,19 +91,8 @@ export function useRecentQuote(customerId?: string) {
       try {
         const { data: quoteData, error: quoteError } = await supabase
           .from('quotes')
-          .select(
-            `
-            quote_id,
-            display_id,
-            status,
-            created_at,
-            updated_at,
-            ended_at,
-            proposal_id,
-            quote_proposals!left(quoted_price)
-          `
-          )
-          .eq('customer_id', userId)
+          .select(QUOTE_SELECT)
+          .eq('profile_id', userId)
           .order('updated_at', { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -147,7 +131,7 @@ export function useRecentQuote(customerId?: string) {
     dataRef.current = data;
   }, [data]);
 
-  // Real-time subscription for quotes changes using admin pattern
+  // Real-time subscription for quotes changes
   useEffect(() => {
     if (!userId) return;
 
@@ -159,33 +143,20 @@ export function useRecentQuote(customerId?: string) {
           event: '*',
           schema: 'public',
           table: 'quotes',
-          filter: `customer_id=eq.${userId}`,
+          filter: `profile_id=eq.${userId}`,
         },
         async payload => {
           const quoteId =
-            (payload.new as any)?.quote_id || (payload.old as any)?.quote_id;
+            (payload.new as any)?.id || (payload.old as any)?.id;
           if (!quoteId) return;
 
           try {
-            // Handle DELETE: remove from local state or refetch
             if (payload.eventType === 'DELETE') {
               if (dataRef.current?.id === quoteId) {
-                // Refetch latest quote
                 const { data: latestData, error: latestError } = await supabase
                   .from('quotes')
-                  .select(
-                    `
-                    quote_id,
-                    display_id,
-                    status,
-                    created_at,
-                    updated_at,
-                    ended_at,
-                    proposal_id,
-                    quote_proposals!left(quoted_price)
-                  `
-                  )
-                  .eq('customer_id', userId)
+                  .select(QUOTE_SELECT)
+                  .eq('profile_id', userId)
                   .order('updated_at', { ascending: false })
                   .limit(1)
                   .maybeSingle();
@@ -202,22 +173,10 @@ export function useRecentQuote(customerId?: string) {
               return;
             }
 
-            // Handle INSERT/UPDATE: fetch single row with joins and merge into state
             const { data: fullQuote, error: fetchError } = await supabase
               .from('quotes')
-              .select(
-                `
-                quote_id,
-                display_id,
-                status,
-                created_at,
-                updated_at,
-                ended_at,
-                proposal_id,
-                quote_proposals!left(quoted_price)
-              `
-              )
-              .eq('quote_id', quoteId)
+              .select(QUOTE_SELECT)
+              .eq('id', quoteId)
               .single();
 
             if (fetchError || !fullQuote) {
@@ -231,7 +190,6 @@ export function useRecentQuote(customerId?: string) {
             const normalizedQuote = normalizeQuote(fullQuote);
             const currentQuote = dataRef.current;
 
-            // Determine if this should replace the current quote
             const shouldUpdate =
               !currentQuote ||
               currentQuote.id === quoteId ||

@@ -5,12 +5,12 @@ export type Cleanup = () => void;
 // Database record as stored in Supabase
 export interface NotificationRecord {
   id: string;
-  customer_id: string;
+  profile_id: string;
   title: string;
-  message: string;
-  type: string;
-  category: string;
-  is_read: boolean;
+  body: string;
+  channel: string;
+  status: string;
+  read_at: string | null;
   created_at: string;
 }
 
@@ -92,7 +92,7 @@ export function startNotificationListener(
         event: 'INSERT',
         schema: 'public',
         table: 'notifications',
-        filter: `customer_id=eq.${userId}`,
+        filter: `profile_id=eq.${userId}`,
       },
       payload => {
         const notif = payload.new as NotificationRecord;
@@ -100,11 +100,11 @@ export function startNotificationListener(
         const item: UINotificationItem = {
           id: notif.id,
           title: notif.title,
-          message: notif.message,
-          category: notif.category,
-          type: notif.type,
+          message: notif.body,
+          category: notif.channel,
+          type: notif.channel,
           timestamp: timeAgoLabel(notif.created_at),
-          isRead: notif.is_read,
+          isRead: notif.status === 'read' || notif.read_at !== null,
         };
 
         // Play sound notification (skip during initial cooldown)
@@ -138,10 +138,10 @@ export async function fetchUserNotifications(
 
   const { data, error, count } = await supabase
     .from('notifications')
-    .select('id,title,message,type,category,is_read,created_at', {
+    .select('id,title,body,channel,status,read_at,created_at', {
       count: 'exact',
     })
-    .eq('customer_id', userId)
+    .eq('profile_id', userId)
     .order('created_at', { ascending: false })
     .range(offset, to);
 
@@ -157,18 +157,19 @@ export async function fetchUserNotifications(
   const { count: unreadCount } = await supabase
     .from('notifications')
     .select('id', { count: 'exact', head: true })
-    .eq('customer_id', userId)
-    .eq('is_read', false);
+    .eq('profile_id', userId)
+    .is('read_at', null)
+    .neq('status', 'read');
 
   const items =
-    data?.map(n => ({
+    data?.map((n: any) => ({
       id: n.id,
       title: n.title,
-      message: n.message,
-      category: n.category,
-      type: n.type,
+      message: n.body,
+      category: n.channel,
+      type: n.channel,
       timestamp: timeAgoLabel(n.created_at),
-      isRead: n.is_read,
+      isRead: n.status === 'read' || n.read_at !== null,
     })) ?? [];
 
   return {
@@ -184,7 +185,7 @@ export async function fetchUserNotifications(
 export async function markNotificationAsRead(id: string): Promise<void> {
   const { error } = await supabase
     .from('notifications')
-    .update({ is_read: true })
+    .update({ status: 'read', read_at: new Date().toISOString() })
     .eq('id', id);
 
   if (error) {
@@ -200,8 +201,8 @@ export async function markAllNotificationsAsRead(
 ): Promise<void> {
   const { error } = await supabase
     .from('notifications')
-    .update({ is_read: true })
-    .eq('customer_id', userId);
+    .update({ status: 'read', read_at: new Date().toISOString() })
+    .eq('profile_id', userId);
 
   if (error) {
     console.error('Failed to mark all notifications as read:', error.message);
@@ -226,7 +227,7 @@ export async function deleteAllNotifications(userId: string): Promise<void> {
   const { error } = await supabase
     .from('notifications')
     .delete()
-    .eq('customer_id', userId);
+    .eq('profile_id', userId);
 
   if (error) {
     console.error('Failed to delete all notifications:', error.message);
