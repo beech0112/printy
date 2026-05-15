@@ -213,7 +213,7 @@ export function useChatPipeline(options: UseChatPipelineOptions): UseChatPipelin
 
         // Surface side effects
         if (result.quoteDraft) {
-          setQuoteDraft(result.quoteDraft as QuoteDraft);
+          setQuoteDraft(result.quoteDraft as unknown as QuoteDraft);
         }
         if (result.escalated) {
           setEscalated(true);

@@ -22,7 +22,6 @@ export const TicketsProvider: React.FC<{ children: React.ReactNode }> = ({
 }) => {
   // Use the useAdminTickets hook to fetch real data with real-time subscriptions
   const { tickets, loading, error, reload } = useAdminTickets({
-    page: 1,
     pageSize: 100, // Load more tickets for the context
     useAdvancedFallbacks: false, // Disabled to avoid 404 errors from inaccessible RPC functions
   });

@@ -46,7 +46,7 @@ async function fetchServiceChunks(): Promise<KnowledgeChunk[]> {
   const { data, error } = await sb
     .from('printing_services')
     .select('name, description, base_price, price_unit, service_categories(name)')
-    .eq('is_active', true)
+    .eq('status', 'active')
     .order('name');
 
   if (error) throw new Error(`Failed to fetch services: ${error.message}`);

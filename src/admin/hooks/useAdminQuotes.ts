@@ -19,6 +19,10 @@ export interface AdminQuoteRow {
   quoted_amount: string;
   created_at: string;
   updated_at: string;
+  accepted_at?: string | null;
+  session_id?: string | null;
+  updated_by?: string | null;
+  ended_at?: string | null;
   // legacy compat
   customer: string;
   total: string;

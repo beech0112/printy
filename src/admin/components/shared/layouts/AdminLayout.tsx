@@ -7,7 +7,6 @@ import { useDeviceUtils } from '@shared/hooks/ui';
 import { useToast } from '@lib/useToast';
 import { useAdminChat } from '@admin/hooks/useAdminChat';
 import { useChatAttachments } from '@features/chat/hooks/shared/useChatAttachments';
-import { useTicketImageUpload } from '@features/chat/hooks/admin/useTicketImageUpload';
 import type { NavRoute } from '../navigation';
 import { useCallback } from 'react';
 import DesktopLayout from './DesktopLayout';
@@ -31,7 +30,6 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
   const { isMobileOrTablet } = useDeviceUtils();
   const navigate = useNavigate();
   const [toasts, toast] = useToast();
-  const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   // Use existing admin chat hook
@@ -54,7 +52,6 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
 
   // Handle file attachments for admin chat
   const { handleAttachFiles } = useChatAttachments(handleSendMessage);
-  const { handleTicketImageUpload } = useTicketImageUpload();
 
   // Send handler — stateless pipeline, no node-state guards needed
   const handleSendGuarded = useCallback(
@@ -208,7 +205,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
               toast={[toasts, toast]}
               sessionId={dbSessionId || undefined}
               conversationId={currentConversationId || undefined}
-              uploadProgressPct={uploadPct}
+              uploadProgressPct={null}
             />
           }
         >
@@ -237,7 +234,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
               sessionId={dbSessionId || undefined}
               conversationId={currentConversationId || undefined}
               toast={[toasts, toast]}
-              uploadProgressPct={uploadPct}
+              uploadProgressPct={null}
             />
           }
         >

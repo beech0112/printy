@@ -1,5 +1,5 @@
 import { supabase } from '@lib/supabase';
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChatWidget } from '@features/chat/components/ChatWidget';
 import { useChatPipeline } from '@features/chat/hooks/shared/useChatPipeline';
@@ -11,7 +11,6 @@ import DashboardGrid from '@customer/components/dashboard/DashboardGrid';
 import ChatCards from '@customer/components/dashboard/chatCards/ChatCards';
 import RecentCard from '@customer/components/dashboard/RecentCard';
 import { ToastContainer, Text } from '@shared/components';
-import Progress from '@shared/components/ui/Progress';
 import Notification from '@shared/components/feedback/Notification';
 import { CustomerDashboardLoading } from '@customer/components/loadingStates';
 import { useLogoutWithToast } from '@/auth/hooks/useLogoutWithToast';

@@ -39,20 +39,20 @@ export const usePortfolio = () => {
 
         // Transform to legacy format for compatibility
         const transformedServices: Service[] = allServices.map(s => ({
-          service_id: s.service_id,
-          service_name: s.service_name,
-          display_id: s.display_id,
+          service_id: s.service_id ?? s.id,
+          service_name: s.service_name ?? s.name,
+          display_id: s.display_id ?? s.id,
           status: s.status,
         }));
 
         const transformedCategories: ServiceCategory[] = categories.map(c => ({
-          category_id: c.category_id,
-          category_name: c.category_name,
+          category_id: c.category_id ?? c.id,
+          category_name: c.category_name ?? c.name,
           service_count: c.service_count,
           services: c.services.map(s => ({
-            service_id: s.service_id,
-            service_name: s.service_name,
-            display_id: s.display_id,
+            service_id: s.service_id ?? s.id,
+            service_name: s.service_name ?? s.name,
+            display_id: s.display_id ?? s.id,
             status: s.status,
           })),
         }));
@@ -98,20 +98,20 @@ export const usePortfolio = () => {
       ]);
 
       const transformedServices: Service[] = allServices.map(s => ({
-        service_id: s.service_id,
-        service_name: s.service_name,
-        display_id: s.display_id,
+        service_id: s.service_id ?? s.id,
+        service_name: s.service_name ?? s.name,
+        display_id: s.display_id ?? s.id,
         status: s.status,
       }));
 
       const transformedCategories: ServiceCategory[] = categories.map(c => ({
-        category_id: c.category_id,
-        category_name: c.category_name,
+        category_id: c.category_id ?? c.id,
+        category_name: c.category_name ?? c.name,
         service_count: c.service_count,
         services: c.services.map(s => ({
-          service_id: s.service_id,
-          service_name: s.service_name,
-          display_id: s.display_id,
+          service_id: s.service_id ?? s.id,
+          service_name: s.service_name ?? s.name,
+          display_id: s.display_id ?? s.id,
           status: s.status,
         })),
       }));

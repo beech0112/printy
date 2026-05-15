@@ -19,6 +19,7 @@ export interface AdminOrderRow {
   created_at: string;
   updated_at: string;
   updated_by?: string | null;
+  completed_at?: string | null;
   // legacy compat
   customer: string;
   total: string;

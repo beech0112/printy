@@ -12,6 +12,10 @@ interface Service extends PrintingService {
   display_id: string;
   service_name: string;
   total_order_count?: number;
+  created_by?: string | null;
+  updated_by?: string | null;
+  created_by_user?: { first_name?: string | null; last_name?: string | null } | null;
+  updated_by_user?: { first_name?: string | null; last_name?: string | null } | null;
 }
 
 interface ServiceItemProps {

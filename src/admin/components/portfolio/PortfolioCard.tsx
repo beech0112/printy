@@ -81,7 +81,7 @@ const PortfolioCard: React.FC = () => {
                 key={cat.category_id}
                 category={cat}
                 isOpen={openAllCategoryId === cat.category_id}
-                onToggle={() => toggleAllCategory(cat.category_id)}
+                onToggle={() => { if (cat.category_id) toggleAllCategory(cat.category_id); }}
                 onHover={setHoveredServiceId}
                 onViewInChat={viewInChat}
               />
@@ -125,7 +125,7 @@ const PortfolioCard: React.FC = () => {
                 key={cat.category_id}
                 category={cat}
                 isOpen={openOfferedCategoryId === cat.category_id}
-                onToggle={() => toggleOfferedCategory(cat.category_id)}
+                onToggle={() => { if (cat.category_id) toggleOfferedCategory(cat.category_id); }}
                 onHover={setHoveredServiceId}
                 onViewInChat={viewInChat}
               />

@@ -1,7 +1,7 @@
 export { chat } from './llm';
 export type { LLMChatOptions, LLMChatResult, ChatMessage, LLMMessage } from './llm';
 
-export { embed, embedBatch, cosineSimilarity } from './embeddings';
+export { embed, embedBatch } from './embeddings';
 export type { EmbeddingResult } from './embeddings';
 
 export { getSystemPrompt, SERVICE_CATALOG } from './prompts';

@@ -513,22 +513,20 @@ export const useSignUp = () => {
 
           // Insert default address if location fields are provided
           if (formData.region && formData.province && formData.city) {
-            const { locationService } = await import(
+            const { regionOptions, provinceOptions, cityOptions } = await import(
               '@shared/services/locationService'
             );
-            const [regions, provinces, cities] = await Promise.all([
-              locationService.getRegions(),
-              locationService.getProvinces(undefined),
-              locationService.getCities(undefined),
-            ]);
+            const regions = await regionOptions('', 1000);
             const regionRow = regions.find(
-              r => r.label.toLowerCase() === formData.region.toLowerCase()
+              (r: { value: string; label: string }) => r.label.toLowerCase() === formData.region.toLowerCase()
             );
+            const provinces = regionRow ? await provinceOptions(regionRow.value, '', 1000) : [];
             const provinceRow = provinces.find(
-              p => p.label.toLowerCase() === formData.province.toLowerCase()
+              (p: { value: string; label: string }) => p.label.toLowerCase() === formData.province.toLowerCase()
             );
+            const cities = provinceRow ? await cityOptions(provinceRow.value, '', 1000) : [];
             const cityRow = cities.find(
-              c => c.label.toLowerCase() === formData.city.toLowerCase()
+              (c: { value: string; label: string }) => c.label.toLowerCase() === formData.city.toLowerCase()
             );
 
             if (regionRow && provinceRow && cityRow) {

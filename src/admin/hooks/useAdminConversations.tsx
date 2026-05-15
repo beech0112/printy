@@ -59,15 +59,12 @@ export const AdminConversationsProvider: React.FC<{
   const [conversations, setConversations] = useState<AdminConversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadingMore] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const loadedPagesRef = useRef<Set<number>>(new Set());
-  const loadedDbIdsRef = useRef<Set<string>>(new Set());
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage] = useState(1);
   const PAGE_SIZE = 50;
-
-  const adminIdRef = useRef<string | null>(null);
 
   const fetchSessions = useCallback(
     async (_page: number, replace: boolean = true) => {
