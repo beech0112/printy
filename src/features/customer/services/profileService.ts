@@ -1,5 +1,5 @@
 import { supabase } from '@lib/supabase';
-import { normalizePhone } from '@/shared/utils/formsFormatter';
+import { normalizePhone } from '@shared/utils/formsFormatter';
 
 export interface CustomerProfile {
   customer_id: string;

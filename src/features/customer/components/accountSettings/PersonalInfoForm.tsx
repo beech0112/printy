@@ -18,7 +18,7 @@ import {
   getBarangayValidationMessage,
   getBuildingNumberValidationMessage,
   getZipValidationMessage,
-} from '@/shared/utils/formsFormatter';
+} from '@shared/utils/formsFormatter';
 import type { UserData } from '@customer/pages/CustomerAccountSettings';
 
 interface PersonalInfoFormProps {
