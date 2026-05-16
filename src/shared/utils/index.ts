@@ -9,9 +9,6 @@ export * from './priceFormatter';
 export * from './statusFormatter';
 export * from './timeFormatter';
 
-// File Upload
-export * from './uploadPaymentProof';
-
 export type {
   NotificationRecord,
   NotificationItem,

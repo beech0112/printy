@@ -6,7 +6,7 @@
 
 import { useCallback } from 'react';
 import { supabase } from '@lib/supabase';
-import { uploadTicketImages } from '@shared/utils/uploadTicketImages';
+import { uploadTicketImages } from '@features/chat/utils/uploadTicketImages';
 
 export interface UseTicketImageUploadResult {
   handleTicketImageUpload: (

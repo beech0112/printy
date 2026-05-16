@@ -6,19 +6,22 @@ export interface MultipleUploadResult {
   errors: string[];
 }
 
-export async function uploadOrderImages(
+/**
+ * Uploads multiple ticket image files to Supabase Storage
+ */
+export async function uploadTicketImages(
   files: File[],
-  orderId: string,
+  inquiryId: string,
   customerId: string,
+  sessionId?: string,
   onProgress?: (value: number) => void
 ): Promise<MultipleUploadResult> {
   const urls: string[] = [];
   const errors: string[] = [];
 
   try {
-    const maxFiles =
-      (IMAGE_UPLOAD_CONFIG as any).orders?.maxFilesPerUpload ??
-      IMAGE_UPLOAD_CONFIG.ticket.maxFilesPerUpload;
+    // Validate file count
+    const maxFiles = IMAGE_UPLOAD_CONFIG.ticket.maxFilesPerUpload;
     if (files.length > maxFiles) {
       return {
         urls: [],
@@ -26,6 +29,7 @@ export async function uploadOrderImages(
       };
     }
 
+    // Validate file types
     const allowedTypes = IMAGE_UPLOAD_CONFIG.allowedTypes;
     for (const f of files) {
       if (!allowedTypes.includes(f.type)) {
@@ -39,22 +43,20 @@ export async function uploadOrderImages(
     }
 
     // Convert HEIC files to JPEG (PDFs and other files pass through unchanged)
-    const { convertMultipleHeicToJpeg } = await import('./convertHeicToJpeg');
+    const { convertMultipleHeicToJpeg } = await import('@shared/utils/convertHeicToJpeg');
     const processedFiles = await convertMultipleHeicToJpeg(files);
 
-    const maxFileSize =
-      (IMAGE_UPLOAD_CONFIG as any).orders?.maxFileSize ??
-      IMAGE_UPLOAD_CONFIG.ticket.maxFileSize;
+    // Validate individual file sizes
+    const maxFileSize = IMAGE_UPLOAD_CONFIG.ticket.maxFileSize;
     for (const f of processedFiles) {
       if (f.size > maxFileSize) {
         errors.push(`${f.name}: File too large (max 10MB per file).`);
       }
     }
 
+    // Validate total size
     const totalSize = processedFiles.reduce((sum, f) => sum + f.size, 0);
-    const maxTotalSize =
-      (IMAGE_UPLOAD_CONFIG as any).orders?.maxTotalSize ??
-      IMAGE_UPLOAD_CONFIG.ticket.maxTotalSize;
+    const maxTotalSize = IMAGE_UPLOAD_CONFIG.ticket.maxTotalSize;
     if (totalSize > maxTotalSize) {
       return {
         urls: [],
@@ -131,9 +133,10 @@ export async function uploadOrderImages(
       return `${baseName}_${paddedNumber}${extension}`;
     };
 
-    const identifier = orderId || 'pending';
+    const identifier = inquiryId || sessionId || 'temp';
     const folderPath = `${customerId}/${identifier}`;
 
+    // Upload each file
     for (let i = 0; i < processedFiles.length; i++) {
       const file = processedFiles[i];
       try {
@@ -148,12 +151,12 @@ export async function uploadOrderImages(
         const fileName = await findAvailableFileName(
           sanitizedFileName,
           folderPath,
-          'order-uploads'
+          'ticket-uploads'
         );
         const filePath = `${folderPath}/${fileName}`;
 
         const { error } = await supabase.storage
-          .from('order-uploads')
+          .from('ticket-uploads')
           .upload(filePath, file, { cacheControl: '3600', upsert: false });
 
         if (error) {
@@ -161,7 +164,7 @@ export async function uploadOrderImages(
           continue;
         }
 
-        const fileUrl = `supabase://order-uploads/${filePath}`;
+        const fileUrl = `supabase://ticket-uploads/${filePath}`;
         urls.push(fileUrl);
         if (onProgress) {
           const pct = Math.round(((i + 1) / processedFiles.length) * 100);
@@ -179,4 +182,28 @@ export async function uploadOrderImages(
       errors: [e instanceof Error ? e.message : 'An unexpected error occurred'],
     };
   }
+}
+
+// Backward compatibility - single file upload wrapper result type
+export interface UploadResult {
+  url: string;
+  error?: string;
+}
+
+export async function uploadTicketImage(
+  file: File,
+  inquiryId: string,
+  customerId: string,
+  sessionId?: string
+): Promise<UploadResult> {
+  const result = await uploadTicketImages(
+    [file],
+    inquiryId,
+    customerId,
+    sessionId
+  );
+  if (result.urls.length > 0) {
+    return { url: result.urls[0] };
+  }
+  return { url: '', error: result.errors[0] || 'Upload failed' };
 }

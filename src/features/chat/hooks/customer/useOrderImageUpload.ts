@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { supabase } from '@lib/supabase';
-import { uploadOrderImages } from '@shared/utils/uploadOrderImages';
+import { uploadOrderImages } from '@features/chat/utils/uploadOrderImages';
 
 export interface UseOrderImageUploadResult {
   handleOrderImageUpload: (

@@ -5,8 +5,8 @@
  */
 
 import { useCallback } from 'react';
-import { supabase } from '../../../../lib/supabase';
-import { uploadPaymentProof } from '@shared/utils/uploadPaymentProof';
+import { supabase } from '@lib/supabase';
+import { uploadPaymentProof } from '@features/chat/utils/uploadPaymentProof';
 
 export interface UsePaymentProofUploadResult {
   handlePaymentProofUpload: (

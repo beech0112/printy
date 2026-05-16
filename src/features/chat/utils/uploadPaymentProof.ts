@@ -27,7 +27,7 @@ export async function uploadPaymentProof(
     const { IMAGE_UPLOAD_CONFIG } = await import(
       '@features/chat/config/uploadConfig'
     );
-    const { convertHeicToJpeg } = await import('./convertHeicToJpeg');
+    const { convertHeicToJpeg } = await import('@shared/utils/convertHeicToJpeg');
 
     const allowedTypes = IMAGE_UPLOAD_CONFIG.allowedTypes;
     if (!allowedTypes.includes(file.type)) {

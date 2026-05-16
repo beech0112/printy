@@ -5,7 +5,7 @@
  */
 
 import { useCallback } from 'react';
-import { uploadTicketImages } from '@shared/utils/uploadTicketImages';
+import { uploadTicketImages } from '@features/chat/utils/uploadTicketImages';
 import { getAdminUserId } from '@features/chat/utils/admin/getAdminUserId';
 
 export interface UseTicketImageUploadResult {
