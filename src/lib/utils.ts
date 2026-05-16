@@ -10,49 +10,6 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
- * Format price in Philippine Peso
- */
-export function formatPrice(price: number): string {
-  return new Intl.NumberFormat('en-PH', {
-    style: 'currency',
-    currency: 'PHP',
-    minimumFractionDigits: 2,
-  }).format(price);
-}
-
-/**
- * Format date in a user-friendly way
- */
-export function formatDate(date: Date | string): string {
-  const dateObj = typeof date === 'string' ? new Date(date) : date;
-  return new Intl.DateTimeFormat('en-PH', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  }).format(dateObj);
-}
-
-/**
- * Format relative time (e.g., "2 hours ago")
- */
-export function formatRelativeTime(date: Date | string): string {
-  const dateObj = typeof date === 'string' ? new Date(date) : date;
-  const now = new Date();
-  const diffInSeconds = Math.floor((now.getTime() - dateObj.getTime()) / 1000);
-
-  if (diffInSeconds < 60) return 'Just now';
-  if (diffInSeconds < 3600)
-    return `${Math.floor(diffInSeconds / 60)} minutes ago`;
-  if (diffInSeconds < 86400)
-    return `${Math.floor(diffInSeconds / 3600)} hours ago`;
-  if (diffInSeconds < 2592000)
-    return `${Math.floor(diffInSeconds / 86400)} days ago`;
-  if (diffInSeconds < 31536000)
-    return `${Math.floor(diffInSeconds / 2592000)} months ago`;
-  return `${Math.floor(diffInSeconds / 31536000)} years ago`;
-}
-
-/**
  * Generate a random ID
  */
 export function generateId(): string {
@@ -154,22 +111,6 @@ export async function copyToClipboard(text: string): Promise<boolean> {
     console.error('Failed to copy text:', error);
     return false;
   }
-}
-
-/**
- * Validate email format
- */
-export function isValidEmail(email: string): boolean {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email);
-}
-
-/**
- * Validate Philippine phone number
- */
-export function isValidPhoneNumber(phone: string): boolean {
-  const phoneRegex = /^[+]?[\d\s()-]+$/;
-  return phoneRegex.test(phone) && phone.replace(/\D/g, '').length >= 10;
 }
 
 /**
