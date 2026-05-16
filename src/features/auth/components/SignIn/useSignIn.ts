@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@lib/supabase';
 import { useToast } from '@shared/hooks/useToast';
-import { formatPasswordInput } from '@/shared/utils/formsFormatter';
+import { formatPasswordInput } from '@auth/utils/validation';
 import {
   assertHumanTurnstile,
   primeTurnstile,

@@ -14,7 +14,7 @@ import {
   getPasswordValidationMessage,
   formatPasswordInput,
   doPasswordsMatch,
-} from '@/shared/utils/formsFormatter';
+} from '@auth/utils/validation';
 
 const ResetPassword: React.FC = () => {
   const navigate = useNavigate();

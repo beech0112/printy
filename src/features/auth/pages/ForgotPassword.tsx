@@ -13,7 +13,7 @@ import { supabase, SITE_URL } from '@lib/supabase';
 import {
   isValidEmail,
   getEmailValidationMessage,
-} from '@/shared/utils/formsFormatter';
+} from '@auth/utils/validation';
 
 // TODO: Backend Integration
 // - Implement real password reset with Supabase Auth

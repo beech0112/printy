@@ -1,7 +1,7 @@
 import React from 'react';
 import { Input, Button, Text } from '@shared/components';
 import { Eye, EyeOff, Mail } from 'lucide-react';
-import { formatPasswordInput } from '@/shared/utils/formsFormatter';
+import { formatPasswordInput } from '@auth/utils/validation';
 
 interface Props {
   email: string;

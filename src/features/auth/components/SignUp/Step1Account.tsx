@@ -5,7 +5,7 @@ import {
   getPasswordRequirements,
   formatPasswordInput,
   doPasswordsMatch,
-} from '@/shared/utils/formsFormatter';
+} from '@auth/utils/validation';
 
 interface Props {
   email: string;

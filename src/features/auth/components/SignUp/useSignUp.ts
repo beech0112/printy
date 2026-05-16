@@ -3,15 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { supabase, SITE_URL } from '@lib/supabase';
 import { useToast } from '@shared/hooks/useToast';
 
-// Import validation + formatting helpers (fixed import path)
 import {
-  normalizePhone,
   validateStep1,
   validateStep2,
   validateStep3,
-  isValidPhone,
   getEmailValidationMessage,
   getPasswordValidationMessage,
+  formatPasswordInput,
+} from '@auth/utils/validation';
+import {
+  normalizePhone,
+  isValidPhone,
   getFirstNameValidationMessage,
   getLastNameValidationMessage,
   getPhoneValidationMessage,
@@ -21,9 +23,8 @@ import {
   getBarangayValidationMessage,
   getBuildingNumberValidationMessage,
   formatNameInput,
-  formatPasswordInput,
   formatZipCodeInput,
-} from '@/shared/utils/formsFormatter';
+} from '@shared/utils/formsFormatter';
 
 export interface SignUpFormData {
   email: string;
