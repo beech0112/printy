@@ -6,7 +6,7 @@ import './index.css';
 
 // Initialize console to terminal forwarding in development
 import './lib/consoleToTerminal';
-import { AuthProvider } from '@/auth/hooks/AuthContext';
+import { AuthProvider } from '@auth/hooks/AuthContext';
 import { SessionCacheProvider } from '@customer/components/shared/cache/SessionCacheProvider';
 import { supabase } from '@lib/supabase';
 

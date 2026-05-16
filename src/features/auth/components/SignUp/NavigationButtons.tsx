@@ -1,0 +1,67 @@
+import React from 'react';
+import { Button } from '@shared/components';
+
+interface Props {
+  currentStep: number;
+  loading: boolean;
+  isStepValid: (step: number) => boolean;
+  onPrev: () => void;
+  onNext: () => void;
+  onSubmit?: () => void;
+}
+
+const NavigationButtons: React.FC<Props> = ({
+  currentStep,
+  loading,
+  isStepValid,
+  onPrev,
+  onNext,
+  onSubmit,
+}) => {
+  return (
+    <div className="flex space-x-4 mt-8">
+      {currentStep > 1 && (
+        <Button
+          type="button"
+          variant="secondary"
+          size="lg"
+          threeD
+          onClick={onPrev}
+          disabled={loading}
+          className="flex-1 btn-responsive-primary"
+        >
+          Previous
+        </Button>
+      )}
+
+      {currentStep < 3 ? (
+        <Button
+          type="button"
+          variant="primary"
+          size="lg"
+          threeD
+          onClick={onNext}
+          disabled={!isStepValid(currentStep) || loading}
+          className="flex-1 btn-responsive-primary"
+        >
+          Proceed
+        </Button>
+      ) : (
+        <Button
+          type="button"
+          variant="primary"
+          size="lg"
+          threeD
+          onClick={onSubmit}
+          loading={loading}
+          disabled={!isStepValid(currentStep) || loading}
+          className="flex-1 btn-responsive-primary"
+        >
+          {loading ? 'Creating Account...' : 'Create Account'}
+        </Button>
+      )}
+    </div>
+  );
+};
+
+export default NavigationButtons;
