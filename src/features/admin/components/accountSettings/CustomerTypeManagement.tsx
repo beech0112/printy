@@ -17,7 +17,7 @@ import {
   type CustomerProfile,
 } from '@customer/services/profileService';
 import { formatCustomerType } from '@shared/utils/statusFormatter';
-import { useToast } from '@lib/useToast';
+import { useToast } from '@shared/hooks/useToast';
 import { Search, User, Mail, Phone, Loader2, MapPin, X } from 'lucide-react';
 
 interface CustomerTypeManagementProps {

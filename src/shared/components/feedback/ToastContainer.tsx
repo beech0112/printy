@@ -1,7 +1,7 @@
 import React, { useCallback } from 'react';
 import { cn } from '@lib/utils';
 import Toast from '@shared/components/feedback/Toast';
-import type { ToastData } from '@lib/useToast';
+import type { ToastData } from '@shared/hooks/useToast';
 
 export interface ToastContainerProps {
   toasts: ToastData[];

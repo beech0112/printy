@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@lib/supabase';
-import { useToast } from '@lib/useToast';
+import { useToast } from '@shared/hooks/useToast';
 import { ToastContainer } from '@shared/components';
 import { useResponsiveClasses, useDeviceUtils } from '@shared/hooks/ui';
 import { useNotificationVisibility } from '@shared/hooks/ui/useNotificationVisibility';

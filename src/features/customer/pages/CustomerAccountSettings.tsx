@@ -8,7 +8,7 @@ import React, {
 import { useNavigate } from 'react-router-dom';
 import ResponsivePageLayout from '@customer/components/shared/layouts/ResponsivePageLayout';
 import { Text, ToastContainer, Button } from '@shared/components';
-import { useToast } from '@lib/useToast';
+import { useToast } from '@shared/hooks/useToast';
 import { ArrowLeft } from 'lucide-react';
 import ProfileOverviewCard from '@customer/components/accountSettings/ProfileOverviewCard';
 import PersonalInfoForm from '@customer/components/accountSettings/PersonalInfoForm';

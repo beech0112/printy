@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Card, Text, Button, Input, Modal } from '@shared/components';
 import { Eye, EyeOff } from 'lucide-react';
 import { supabase } from '@lib/supabase';
-import { useToast } from '@lib/useToast';
+import { useToast } from '@shared/hooks/useToast';
 
 interface SecuritySettingsProps {
   onPasswordUpdated?: () => void; // Triggered after successful password update

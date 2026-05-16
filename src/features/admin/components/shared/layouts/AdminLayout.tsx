@@ -4,7 +4,7 @@ import { Modal, Text, Button, ToastContainer } from '@admin/components/shared';
 import { SpecEditorModal } from '../../quotes/SpecEditorModal';
 import { X } from 'lucide-react';
 import { useDeviceUtils } from '@shared/hooks/ui';
-import { useToast } from '@lib/useToast';
+import { useToast } from '@shared/hooks/useToast';
 import { useAdminChat } from '@admin/hooks/useAdminChat';
 import { useChatAttachments } from '@features/chat/hooks/shared/useChatAttachments';
 import type { NavRoute } from '../navigation';

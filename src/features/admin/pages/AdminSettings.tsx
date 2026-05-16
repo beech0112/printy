@@ -6,7 +6,7 @@ import React, {
   useRef,
 } from 'react';
 import { Container, Text, ToastContainer } from '@shared/components';
-import { useToast } from '@lib/useToast';
+import { useToast } from '@shared/hooks/useToast';
 import ProfileOverviewCard from '@admin/components/accountSettings/ProfileOverviewCard';
 import PersonalInfoForm, {
   type AdminUserData,

@@ -3,7 +3,7 @@ import { Outlet, useNavigate } from 'react-router-dom';
 import { LogOut, RefreshCw } from 'lucide-react';
 import { supabase } from '@lib/supabase';
 import { Modal, Text, Button, ToastContainer } from '@shared/components';
-import { useToast } from '@lib/useToast';
+import { useToast } from '@shared/hooks/useToast';
 import { useDeviceUtils } from '@shared/hooks/ui';
 import { X } from 'lucide-react';
 

@@ -1,5 +1,5 @@
 import { useCallback, useRef } from 'react';
-import { useToast } from '@lib/useToast';
+import { useToast } from '@shared/hooks/useToast';
 
 export interface ChatLoadingToastOptions {
   userType: 'admin' | 'customer';

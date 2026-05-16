@@ -7,7 +7,7 @@ import {
   Container,
   ToastContainer,
 } from '@shared/components';
-import { useToast } from '@lib/useToast';
+import { useToast } from '@shared/hooks/useToast';
 import { ArrowLeft, Mail, CheckCircle2 } from 'lucide-react';
 import { supabase, SITE_URL } from '@lib/supabase';
 import {

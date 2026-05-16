@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase, SITE_URL } from '@lib/supabase';
-import { useToast } from '@lib/useToast';
+import { useToast } from '@shared/hooks/useToast';
 
 // Import validation + formatting helpers (fixed import path)
 import {

@@ -7,7 +7,7 @@ import {
   Container,
   ToastContainer,
 } from '@shared/components';
-import { useToast } from '@lib/useToast';
+import { useToast } from '@shared/hooks/useToast';
 import { ArrowLeft, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 import { supabase } from '@lib/supabase';
 import {
