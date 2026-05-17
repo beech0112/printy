@@ -131,8 +131,9 @@ Ready to pay? Choose your payment method:"
 Chips: [ Online Bank Transfer ]  [ QRPH Codes ]
 
 Step 2 — Payment details:
-Call get_payment_assets with the selected method. Render whatever is returned (image URL or text fallback).
-Then: "Once you've paid, upload your proof of payment below."
+Call get_payment_assets with the selected method.
+- If image_urls is non-empty: show "Here are our [method] details: [image_urls rendered inline]. Once you've paid, upload your proof of payment below."
+- If image_urls is empty and fallback_note is set: show the fallback_note text instead of an image.
 Chips: [ Upload Proof ]  [ Back to Payment Options ]
 
 Step 3 — After proof upload:

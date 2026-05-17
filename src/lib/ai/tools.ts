@@ -994,25 +994,42 @@ export async function executeTool(
 
       case 'get_payment_assets': {
         const { method } = call.arguments as { method: 'bank_transfer' | 'qrph' };
-        // Storage buckets not yet created — return placeholder info
-        // TODO: replace with Supabase storage public URLs when buckets are set up
-        if (method === 'bank_transfer') {
+        if (!context.supabase) {
+          return { tool: call.name, result: null, error: 'Supabase not available.' };
+        }
+        // List files in the payment-methods bucket under the method folder
+        const folder = method === 'bank_transfer' ? 'bank_transfer' : 'qrph';
+        const { data: files } = await context.supabase.storage
+          .from('payment-methods')
+          .list(folder, { limit: 10, sortBy: { column: 'created_at', order: 'desc' } });
+
+        const imageUrls: string[] = [];
+        if (files && files.length > 0) {
+          for (const f of files) {
+            const { data: urlData } = context.supabase.storage
+              .from('payment-methods')
+              .getPublicUrl(`${folder}/${f.name}`);
+            if (urlData?.publicUrl) imageUrls.push(urlData.publicUrl);
+          }
+        }
+
+        if (imageUrls.length === 0) {
+          // No assets uploaded yet — return contact fallback
           return {
             tool: call.name,
             result: {
-              method: 'bank_transfer',
-              note: 'Bank transfer details image not yet available. Please contact us at bjsantiagoinc@gmail.com or +632 8781 3457 for account details.',
-              image_url: null,
+              method,
+              image_urls: [],
+              fallback_note: method === 'bank_transfer'
+                ? 'Bank transfer details not yet available. Please contact us at bjsantiagoinc@gmail.com or +632 8781 3457.'
+                : 'QR code not yet available. Please contact us at bjsantiagoinc@gmail.com or +632 8781 3457.',
             },
           };
         }
+
         return {
           tool: call.name,
-          result: {
-            method: 'qrph',
-            note: 'QR code image not yet available. Please contact us at bjsantiagoinc@gmail.com or +632 8781 3457 for payment details.',
-            image_url: null,
-          },
+          result: { method, image_urls: imageUrls, fallback_note: null },
         };
       }
 

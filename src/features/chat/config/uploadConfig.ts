@@ -1,16 +1,30 @@
 export const IMAGE_UPLOAD_CONFIG = {
-  // Ticket uploads (multiple files)
+  // Ticket uploads → bucket: ticket-uploads
   ticket: {
     maxFileSize: 10 * 1024 * 1024, // 10MB per file
-    maxFilesPerUpload: 3, // 3 files max
-    maxTotalSize: 10 * 1024 * 1024, // 10MB total per upload
+    maxFilesPerUpload: 3,
+    maxTotalSize: 10 * 1024 * 1024,
   },
 
-  // Payment proof uploads (single file)
+  // Payment proof uploads → bucket: payment-proofs
   payment: {
-    maxFileSize: 10 * 1024 * 1024, // 10MB per file
-    maxFilesPerUpload: 1, // Single file only
-    maxTotalSize: 10 * 1024 * 1024, // 10MB total
+    maxFileSize: 10 * 1024 * 1024,
+    maxFilesPerUpload: 1,
+    maxTotalSize: 10 * 1024 * 1024,
+  },
+
+  // Quote request attachments → bucket: quote-attachments
+  quote: {
+    maxFileSize: 10 * 1024 * 1024,
+    maxFilesPerUpload: 3,
+    maxTotalSize: 10 * 1024 * 1024,
+  },
+
+  // Order image uploads → bucket: order-uploads
+  order: {
+    maxFileSize: 10 * 1024 * 1024,
+    maxFilesPerUpload: 3,
+    maxTotalSize: 10 * 1024 * 1024,
   },
 
   // Supported file types (static images + PDFs)
