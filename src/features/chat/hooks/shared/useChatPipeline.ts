@@ -106,7 +106,7 @@ export function useChatPipeline(options: UseChatPipelineOptions): UseChatPipelin
         history: [],
         userMessage: '__greeting__',
         context: { sessionId, conversationId, userId, supabase },
-        maxToolRounds: 1,
+        maxToolRounds: 3,
       });
       console.debug('[useChatPipeline] greeting response:', result.text?.slice(0, 80));
       setMessages([{
