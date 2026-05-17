@@ -33,11 +33,48 @@ export interface LLMChatOptions {
   maxToolRounds?: number;
 }
 
+export interface LLMQuickReply {
+  id: string;
+  label: string;
+  value: string;
+}
+
 export interface LLMChatResult {
   text: string;
+  quickReplies: LLMQuickReply[];
   toolsUsed: string[];
   quoteDraft?: Record<string, unknown>;
   escalated?: boolean;
+}
+
+// ─── Chip extraction ──────────────────────────────────────────────────────────
+// Parses [ Label ] tokens from LLM text, strips them, returns as QuickReply objects.
+// Handles multi-line chip lists like:
+//   [ Request a Quote ]  [ Browse Services ]  [ Report an Issue ]
+const CHIP_PATTERN = /\[\s*([^\]]+?)\s*\]/g;
+
+function extractChips(text: string): { cleanText: string; quickReplies: LLMQuickReply[] } {
+  const quickReplies: LLMQuickReply[] = [];
+  const seen = new Set<string>();
+
+  let cleanText = text.replace(CHIP_PATTERN, (_, label: string) => {
+    const trimmed = label.trim();
+    if (!seen.has(trimmed)) {
+      seen.add(trimmed);
+      quickReplies.push({ id: crypto.randomUUID(), label: trimmed, value: trimmed });
+    }
+    return '';
+  });
+
+  // Clean up orphaned separators like · or | left between removed chips
+  cleanText = cleanText
+    .replace(/\s*[·|]\s*(?=[·|\s]|$)/g, ' ')
+    .replace(/^\s*[·|]\s*/gm, '')
+    .replace(/\s*[·|]\s*$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return { cleanText, quickReplies };
 }
 
 // ─── Proxy request/response types ────────────────────────────────────────────
@@ -107,8 +144,10 @@ export async function chat(options: LLMChatOptions): Promise<LLMChatResult> {
 
     // No tool calls — final answer
     if (!proxyRes.toolCalls || proxyRes.toolCalls.length === 0) {
+      const { cleanText, quickReplies } = extractChips(proxyRes.text ?? '');
       return {
-        text: proxyRes.text ?? '',
+        text: cleanText,
+        quickReplies,
         toolsUsed,
         quoteDraft,
         escalated,
@@ -143,6 +182,7 @@ export async function chat(options: LLMChatOptions): Promise<LLMChatResult> {
 
   return {
     text: 'Sorry, I ran into an issue processing your request. Please try again.',
+    quickReplies: [],
     toolsUsed,
     quoteDraft,
     escalated,

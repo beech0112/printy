@@ -60,7 +60,7 @@ const CustomerDashboardContent: React.FC = () => {
     });
   }, []);
 
-  const { messages, isTyping, send, greet, reset } = useChatPipeline({
+  const { messages, isTyping, send, greet, reset, quickReplies } = useChatPipeline({
     userRole: 'customer',
     customerType,
     userId,
@@ -138,6 +138,8 @@ const CustomerDashboardContent: React.FC = () => {
           userRole="customer"
           title="Chat with Printy"
           isTyping={isTyping}
+          quickReplies={quickReplies}
+          onQuickReply={r => send(typeof r === 'string' ? r : r.label)}
           onClose={closeMobileChat}
           onMinimize={closeMobileChat}
           open={true}
@@ -260,6 +262,8 @@ const CustomerDashboardContent: React.FC = () => {
           userRole="customer"
           title="Chat with Printy"
           isTyping={isTyping}
+          quickReplies={quickReplies}
+          onQuickReply={r => send(typeof r === 'string' ? r : r.label)}
           open={true}
         />
       </aside>

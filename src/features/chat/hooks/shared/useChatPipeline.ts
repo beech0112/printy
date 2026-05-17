@@ -58,6 +58,8 @@ export interface UseChatPipelineResult {
   clearQuoteDraft: () => void;
   escalated: boolean;
   reset: () => void;
+  /** Quick reply chips from the last bot message */
+  quickReplies: import('@features/chat/types').QuickReply[];
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -77,6 +79,7 @@ export function useChatPipeline(options: UseChatPipelineOptions): UseChatPipelin
   const [isTyping, setIsTyping] = useState(false);
   const [quoteDraft, setQuoteDraft] = useState<QuoteDraft | null>(null);
   const [escalated, setEscalated] = useState(false);
+  const [quickReplies, setQuickReplies] = useState<import('@features/chat/types').QuickReply[]>([]);
 
   // Keep a ref of LLM-format history for the chat() call
   // (separate from display messages which use ChatMessage format)
@@ -115,6 +118,7 @@ export function useChatPipeline(options: UseChatPipelineOptions): UseChatPipelin
         text: result.text,
         ts: Date.now(),
       }]);
+      setQuickReplies(result.quickReplies ?? []);
       historyRef.current = [{ role: 'assistant', content: result.text }];
     } catch (err) {
       console.error('[useChatPipeline] greeting failed:', err);
@@ -139,7 +143,7 @@ export function useChatPipeline(options: UseChatPipelineOptions): UseChatPipelin
     async (text: string) => {
       if (!text.trim() || isTyping) return;
 
-      // Show user message immediately
+      // Show user message immediately, clear previous chips
       const userMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'user',
@@ -147,6 +151,7 @@ export function useChatPipeline(options: UseChatPipelineOptions): UseChatPipelin
         ts: Date.now(),
       };
       appendMessage(userMsg);
+      setQuickReplies([]);
       setIsTyping(true);
 
       // Persist user message to DB if we have a session
@@ -190,6 +195,7 @@ export function useChatPipeline(options: UseChatPipelineOptions): UseChatPipelin
           ts: Date.now(),
         };
         appendMessage(botMsg);
+        setQuickReplies(result.quickReplies ?? []);
 
         // Persist bot response to DB
         if (sessionId) {
@@ -249,9 +255,10 @@ export function useChatPipeline(options: UseChatPipelineOptions): UseChatPipelin
     setIsTyping(false);
     setQuoteDraft(null);
     setEscalated(false);
+    setQuickReplies([]);
     historyRef.current = [];
-    greetedRef.current = false; // allow re-greeting after reset
+    greetedRef.current = false;
   }, []);
 
-  return { messages, isTyping, send, greet, quoteDraft, clearQuoteDraft, escalated, reset };
+  return { messages, isTyping, send, greet, quoteDraft, clearQuoteDraft, escalated, reset, quickReplies };
 }

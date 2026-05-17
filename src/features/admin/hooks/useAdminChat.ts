@@ -75,7 +75,7 @@ export const useAdminChat = (): UseAdminChatReturn => {
     setChatOpen,
     messages: pipeline.messages,
     isTyping: pipeline.isTyping,
-    quickReplies: [],
+    quickReplies: pipeline.quickReplies,
     handleChatOpen,
     handleChatOpenWithTopic,
     handleShowConversation: async () => {},
