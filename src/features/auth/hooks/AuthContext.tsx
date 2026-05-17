@@ -8,16 +8,26 @@ import React, {
 import type { Session, User, AuthChangeEvent } from '@supabase/supabase-js';
 import { supabase } from '@lib/supabase';
 
+// profiles.role — who you are in the system
+export type ProfileRole = 'customer' | 'admin' | 'superadmin';
+
+// profiles.customer_type — VIP tier, only meaningful for role='customer'
+export type CustomerType = 'regular' | 'valued';
+
+// The merged "effective role" used by routing guards — kept for backward compat
+// regular customer   → 'regular'
+// valued customer    → 'valued'
+// admin              → 'admin'
+// superadmin         → 'superadmin'
 export type Role = 'regular' | 'valued' | 'admin' | 'superadmin';
 
 export const getHomePath = (role?: Role) => {
   switch (role) {
-    case 'valued':
-      return '/valued';
     case 'admin':
       return '/admin';
     case 'superadmin':
       return '/superadmin';
+    case 'valued':
     case 'regular':
     default:
       return '/customer';
@@ -28,7 +38,12 @@ type AuthState = {
   loading: boolean;
   session: Session | null;
   user: User | null;
+  /** Effective role used by routing guards */
   role: Role | undefined;
+  /** Raw profiles.role — 'customer' | 'admin' | 'superadmin' */
+  profileRole: ProfileRole | undefined;
+  /** profiles.customer_type — only set for role='customer' rows */
+  customerType: CustomerType | undefined;
 };
 
 type AuthContextValue = AuthState & {
@@ -40,25 +55,38 @@ const AuthContext = createContext<AuthContextValue>({
   session: null,
   user: null,
   role: undefined,
+  profileRole: undefined,
+  customerType: undefined,
   refresh: async () => {},
 });
 
-async function fetchRoleForUser(user: User | null): Promise<Role | undefined> {
-  if (!user?.id) return undefined;
+async function fetchProfileForUser(user: User | null): Promise<{
+  role: Role | undefined;
+  profileRole: ProfileRole | undefined;
+  customerType: CustomerType | undefined;
+}> {
+  if (!user?.id) return { role: undefined, profileRole: undefined, customerType: undefined };
   try {
     const { data } = await supabase
       .from('profiles')
       .select('role, customer_type')
       .eq('id', user.id)
       .maybeSingle();
-    if (data?.role === 'admin') return 'admin';
-    if (data?.role === 'superadmin') return 'superadmin';
-    if (data?.role === 'customer') {
-      return data.customer_type === 'valued' ? 'valued' : 'regular';
-    }
-    return 'regular';
+
+    if (!data) return { role: undefined, profileRole: undefined, customerType: undefined };
+
+    const profileRole = data.role as ProfileRole;
+    const customerType = (data.customer_type ?? undefined) as CustomerType | undefined;
+
+    // Effective role for routing
+    let role: Role;
+    if (profileRole === 'admin') role = 'admin';
+    else if (profileRole === 'superadmin') role = 'superadmin';
+    else role = customerType === 'valued' ? 'valued' : 'regular';
+
+    return { role, profileRole, customerType };
   } catch {
-    return 'regular';
+    return { role: 'regular', profileRole: 'customer', customerType: 'regular' };
   }
 }
 
@@ -70,6 +98,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     session: null,
     user: null,
     role: undefined,
+    profileRole: undefined,
+    customerType: undefined,
   });
 
   useEffect(() => {
@@ -80,8 +110,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       const { data: userData } = await supabase.auth.getUser();
       const session = sessionData.session ?? null;
       const user = userData.user ?? null;
-      const role = await fetchRoleForUser(user);
-      if (mounted) setState({ loading: false, session, user, role });
+      const profile = await fetchProfileForUser(user);
+      if (mounted) setState({ loading: false, session, user, ...profile });
     };
 
     load();
@@ -91,16 +121,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         setState(s => ({ ...s, loading: true }));
         (async () => {
           const user = session?.user ?? null;
-          const role = await fetchRoleForUser(user);
+          const profile = await fetchProfileForUser(user);
           if (mounted)
-            setState({ loading: false, session: session ?? null, user, role });
+            setState({ loading: false, session: session ?? null, user, ...profile });
         })();
       }
     );
 
     return () => {
       mounted = false;
-      // Supabase v2
       listener.subscription.unsubscribe();
     };
   }, []);
@@ -111,8 +140,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     const { data: userData } = await supabase.auth.getUser();
     const session = sessionData.session ?? null;
     const user = userData.user ?? null;
-    const role = await fetchRoleForUser(user);
-    setState({ loading: false, session, user, role });
+    const profile = await fetchProfileForUser(user);
+    setState({ loading: false, session, user, ...profile });
   };
 
   const value = useMemo<AuthContextValue>(
