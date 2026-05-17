@@ -129,24 +129,63 @@ export const TOOLS: OllamaTool[] = [
     function: {
       name: 'create_quote_request',
       description:
-        'Submits a formal quote request to B.J. Santiago by creating an inquiry record. Call this after collecting the customer\'s print job description. Returns a display_id the customer can reference.',
+        'Submits a confirmed quote request after the customer has typed "yes" to the draft summary. Call ONLY after explicit customer confirmation. Stores all spec fields in ai_context. Returns a display_id (QTR-XXXXXX).',
       parameters: {
         type: 'object',
         properties: {
-          subject: {
+          product: {
             type: 'string',
-            description: 'Short title summarizing what is being requested (e.g. "Business Card Printing - 500 pcs").',
+            description: 'What the customer wants printed (e.g. "Business cards").',
           },
-          body: {
+          description: {
             type: 'string',
-            description: 'Full details of the print job: product, size, quantity, material, color, finishing, deadline, delivery method.',
+            description: 'Details, use case, design notes.',
+          },
+          size: {
+            type: 'string',
+            description: 'Dimensions or standard format (e.g. "3.5x2in", "A4").',
+          },
+          quantity: {
+            type: 'string',
+            description: 'Number of units.',
+          },
+          materials: {
+            type: 'string',
+            description: 'Paper or material type (e.g. "16pt cardstock", "Vinyl").',
+          },
+          color: {
+            type: 'string',
+            description: 'Color spec (e.g. "Full Color", "B&W", "Pantone 186C").',
+          },
+          finishing: {
+            type: 'string',
+            description: 'Finishing options (e.g. "Glossy UV", "Matte", "Spot UV").',
+          },
+          deadline: {
+            type: 'string',
+            description: 'When the customer needs the job completed.',
+          },
+          delivery_method: {
+            type: 'string',
+            enum: ['pickup', 'delivery'],
+            description: 'Pickup at Sampaloc branch or delivery to customer address.',
+          },
+          attachments: {
+            type: 'array',
+            description: 'Optional list of uploaded file URLs attached to this request.',
+            items: { type: 'string' },
           },
           service_id: {
             type: 'string',
             description: 'Optional UUID of the matching printing service from the catalog.',
           },
+          is_valued_customer: {
+            type: 'string',
+            enum: ['true', 'false'],
+            description: 'Pass "true" for valued customers so the inquiry is flagged urgent.',
+          },
         },
-        required: ['subject', 'body'],
+        required: ['product', 'description', 'size', 'quantity', 'materials', 'color', 'finishing', 'deadline', 'delivery_method'],
       },
     },
   },
@@ -342,28 +381,28 @@ export const TOOLS: OllamaTool[] = [
     function: {
       name: 'send_quote_proposal',
       description:
-        'Admin only. Sends a price proposal to a customer for their quote request. Updates the quote record with pricing and updates status to sent.',
+        'Admin only. Sends a price proposal to a customer after admin has typed "yes" to the proposal summary. Creates or updates the quotes row and notifies the customer.',
       parameters: {
         type: 'object',
         properties: {
           inquiry_id: {
             type: 'string',
-            description: 'The display ID of the customer inquiry (e.g. INQ-000001).',
+            description: 'The display ID of the quote request (e.g. QTR-000001).',
           },
-          unit_price: {
+          quoted_price: {
             type: 'number',
-            description: 'Price per unit in PHP.',
+            description: 'Total quoted price in PHP as typed by the admin.',
           },
-          quantity: {
-            type: 'number',
-            description: 'Quantity agreed upon.',
-          },
-          notes: {
+          spec_final: {
             type: 'string',
-            description: 'Optional notes or specs summary for the customer.',
+            description: 'JSON string of the confirmed spec object (product, size, quantity, materials, color, finishing, deadline, delivery_method).',
+          },
+          admin_notes: {
+            type: 'string',
+            description: 'Optional notes from admin to include with the proposal.',
           },
         },
-        required: ['inquiry_id', 'unit_price', 'quantity'],
+        required: ['inquiry_id', 'quoted_price', 'spec_final'],
       },
     },
   },
@@ -519,23 +558,45 @@ export async function executeTool(
       }
 
       case 'create_quote_request': {
-        const { subject, body, service_id } = call.arguments as {
-          subject: string;
-          body: string;
+        const {
+          product, description, size, quantity, materials, color,
+          finishing, deadline, delivery_method, attachments,
+          service_id, is_valued_customer,
+        } = call.arguments as {
+          product: string;
+          description: string;
+          size: string;
+          quantity: string;
+          materials: string;
+          color: string;
+          finishing: string;
+          deadline: string;
+          delivery_method: 'pickup' | 'delivery';
+          attachments?: string[];
           service_id?: string;
+          is_valued_customer?: string;
         };
         if (!context.supabase || !context.userId) {
           return { tool: call.name, result: null, error: 'Authentication required to submit a quote request.' };
         }
+        const subject = `${product} - ${quantity} units`;
+        const aiContext = {
+          product, description, size, quantity, materials, color,
+          finishing, deadline, delivery_method,
+          attachments: attachments ?? [],
+          urgent: is_valued_customer === 'true',
+        };
         const { data, error } = await context.supabase
           .from('inquiries')
           .insert({
             profile_id: context.userId,
             type: 'quote_request',
             subject,
-            body,
-            ...(service_id ? { service_id } : {}),
+            body: `${product}: ${description}`,
             status: 'new',
+            ai_context: aiContext,
+            ...(service_id ? { service_id } : {}),
+            ...(attachments?.length ? { attachments } : {}),
           })
           .select('display_id')
           .single();
@@ -666,11 +727,18 @@ export async function executeTool(
         }
         const { data, error } = await context.supabase
           .from('inquiries')
-          .select('display_id, subject, status, created_at, profiles(display_name, email, customer_type)')
+          .select('display_id, subject, status, ai_context, created_at, profiles(first_name, last_name, display_name, email, customer_type)')
+          .eq('type', 'quote_request')
           .in('status', ['new', 'in_progress'])
           .order('created_at', { ascending: true });
         if (error) return { tool: call.name, result: null, error: error.message };
-        return { tool: call.name, result: data ?? [] };
+        // Sort: valued customer (urgent) requests first
+        const sorted = (data ?? []).sort((a: any, b: any) => {
+          const aUrgent = a.ai_context?.urgent === true ? 0 : 1;
+          const bUrgent = b.ai_context?.urgent === true ? 0 : 1;
+          return aUrgent - bUrgent;
+        });
+        return { tool: call.name, result: sorted };
       }
 
       case 'get_quote_details_admin': {
@@ -689,62 +757,93 @@ export async function executeTool(
       }
 
       case 'send_quote_proposal': {
-        const { inquiry_id, unit_price, quantity, notes } = call.arguments as {
+        const { inquiry_id, quoted_price, spec_final, admin_notes } = call.arguments as {
           inquiry_id: string;
-          unit_price: number;
-          quantity: number;
-          notes?: string;
+          quoted_price: number;
+          spec_final: string;
+          admin_notes?: string;
         };
         if (!context.supabase || !context.userId) {
           return { tool: call.name, result: null, error: 'Authentication required.' };
         }
-        // Find the inquiry to get its linked quote
+        // Find the inquiry and its profile_id
         const { data: inquiry, error: inqErr } = await context.supabase
           .from('inquiries')
-          .select('id, quotes(id)')
+          .select('id, profile_id, quotes(id)')
           .or(`display_id.eq.${inquiry_id},id.eq.${inquiry_id}`)
           .maybeSingle();
         if (inqErr || !inquiry) {
           return { tool: call.name, result: null, error: inqErr?.message ?? 'Inquiry not found.' };
         }
+        let specObj: Record<string, unknown>;
+        try {
+          specObj = typeof spec_final === 'string' ? JSON.parse(spec_final) : spec_final;
+        } catch {
+          specObj = { raw: spec_final };
+        }
+        const now = new Date().toISOString();
         const linkedQuotes = inquiry.quotes as any[];
         let quoteId: string;
+        let quoteDisplayId: string;
         if (linkedQuotes && linkedQuotes.length > 0) {
           quoteId = linkedQuotes[0].id;
-          // Update existing quote with proposal details
           const { error: upErr } = await context.supabase
             .from('quotes')
             .update({
-              quoted_price: unit_price * quantity,
-              total_amount: unit_price * quantity,
-              admin_notes: notes ?? null,
-              spec_final: { unit_price, quantity },
+              quoted_price,
+              total_amount: quoted_price,
+              admin_notes: admin_notes ?? null,
+              spec_final: specObj,
               proposed_by: context.userId,
-              proposal_sent_at: new Date().toISOString(),
+              proposal_sent_at: now,
               status: 'sent',
+              sent_at: now,
             })
             .eq('id', quoteId);
           if (upErr) return { tool: call.name, result: null, error: upErr.message };
+          const { data: q } = await context.supabase
+            .from('quotes').select('display_id').eq('id', quoteId).single();
+          quoteDisplayId = q?.display_id ?? quoteId;
         } else {
-          // Create the quote record with proposal details
           const { data: newQuote, error: qErr } = await context.supabase
             .from('quotes')
             .insert({
               inquiry_id: inquiry.id,
-              quoted_price: unit_price * quantity,
-              total_amount: unit_price * quantity,
-              admin_notes: notes ?? null,
-              spec_final: { unit_price, quantity },
+              profile_id: inquiry.profile_id,
+              quoted_price,
+              total_amount: quoted_price,
+              admin_notes: admin_notes ?? null,
+              spec_final: specObj,
               proposed_by: context.userId,
-              proposal_sent_at: new Date().toISOString(),
+              proposal_sent_at: now,
               status: 'sent',
+              sent_at: now,
             })
-            .select('id')
+            .select('id, display_id')
             .single();
           if (qErr || !newQuote) return { tool: call.name, result: null, error: qErr?.message ?? 'Failed to create quote.' };
           quoteId = newQuote.id;
+          quoteDisplayId = newQuote.display_id;
         }
-        return { tool: call.name, result: { success: true, inquiry_id, quote_id: quoteId } };
+        // Update inquiry status to in_progress
+        await context.supabase
+          .from('inquiries')
+          .update({ status: 'in_progress' })
+          .eq('id', inquiry.id);
+        // Notify the customer
+        await context.supabase
+          .from('notifications')
+          .insert({
+            profile_id: inquiry.profile_id,
+            channel: 'in_app',
+            status: 'sent',
+            title: 'Quote proposal received',
+            body: `Your quote request has been reviewed. A proposal of ₱${quoted_price.toLocaleString('en-PH')} has been sent. Tap to review.`,
+            inquiry_id: inquiry.id,
+            quote_id: quoteId,
+            sent_at: now,
+          });
+        return { tool: call.name, result: { success: true, inquiry_id, quote_id: quoteDisplayId } };
       }
 
       case 'create_order_from_quote': {
