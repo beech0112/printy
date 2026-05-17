@@ -2,6 +2,7 @@ import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import tsconfigPaths from 'vite-tsconfig-paths';
 import { CohereClient } from 'cohere-ai';
+import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 
 // Custom plugin to forward console logs to terminal
@@ -58,12 +59,13 @@ const consoleToTerminalPlugin = () => {
   };
 };
 
-// ─── Cohere proxy plugin ───────────────────────────────────────────────────────
-// Handles POST /api/chat and POST /api/embed in dev so API keys stay server-side.
-// On production these become Netlify functions.
+// ─── AI proxy plugin ───────────────────────────────────────────────────────────
+// /api/embed  → Cohere embed-english-v3.0 (embeddings for RAG)
+// /api/chat   → DeepSeek v4 via Anthropic-compatible SDK
+// API keys stay server-side. On production these become Netlify functions.
 const cohereProxyPlugin = () => {
   return {
-    name: 'cohere-proxy',
+    name: 'ai-proxy',
     configureServer(server: any) {
 
       // ── POST /api/embed ────────────────────────────────────────────────────
@@ -122,11 +124,11 @@ const cohereProxyPlugin = () => {
           return;
         }
 
-        const apiKey = process.env.COHERE_API_KEY;
+        const apiKey = process.env.DEEPSEEK_API_KEY;
         if (!apiKey) {
           res.statusCode = 500;
           res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ error: 'COHERE_API_KEY not set in environment' }));
+          res.end(JSON.stringify({ error: 'DEEPSEEK_API_KEY not set in environment' }));
           return;
         }
 
@@ -136,98 +138,104 @@ const cohereProxyPlugin = () => {
           try {
             const { systemPrompt, history, userMessage, tools } = JSON.parse(body);
 
-            const cohere = new CohereClient({ token: apiKey });
-
-            // ── RAG retrieval ──────────────────────────────────────────────
-            // Skip retrieval for the greeting sentinel to avoid a wasted embed call
+            // ── RAG retrieval (still uses Cohere embeddings) ───────────────
             let ragContext = '';
             const isGreeting = userMessage === '__greeting__';
 
             if (!isGreeting) {
               try {
-                const embedResponse = await cohere.embed({
-                  model: 'embed-english-v3.0',
-                  texts: [userMessage],
-                  inputType: 'search_query',
-                  embeddingTypes: ['float'],
-                });
-                const queryVector = ((embedResponse.embeddings as any)?.float ?? embedResponse.embeddings)?.[0];
-
-                if (queryVector) {
-                  const supabaseUrl = process.env.SUPABASE_URL;
-                  const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
-                  if (supabaseUrl && supabaseKey) {
-                    const sb = createClient(supabaseUrl, supabaseKey);
-                    const { data: chunks } = await sb.rpc('match_knowledge', {
-                      query_embedding: queryVector,
-                      match_threshold: 0.45,
-                      match_count: 5,
-                    });
-                    if (chunks && chunks.length > 0) {
-                      ragContext = chunks.map((c: any) => c.content).join('\n\n---\n\n');
-                      console.debug(`[cohere-proxy] RAG: ${chunks.length} chunks retrieved`);
+                const cohereKey = process.env.COHERE_API_KEY;
+                if (cohereKey) {
+                  const cohere = new CohereClient({ token: cohereKey });
+                  const embedResponse = await cohere.embed({
+                    model: 'embed-english-v3.0',
+                    texts: [userMessage],
+                    inputType: 'search_query',
+                    embeddingTypes: ['float'],
+                  });
+                  const queryVector = ((embedResponse.embeddings as any)?.float ?? embedResponse.embeddings)?.[0];
+                  if (queryVector) {
+                    const supabaseUrl = process.env.SUPABASE_URL;
+                    const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
+                    if (supabaseUrl && supabaseKey) {
+                      const sb = createClient(supabaseUrl, supabaseKey);
+                      const { data: chunks } = await sb.rpc('match_knowledge', {
+                        query_embedding: queryVector,
+                        match_threshold: 0.45,
+                        match_count: 5,
+                      });
+                      if (chunks && chunks.length > 0) {
+                        ragContext = chunks.map((c: any) => c.content).join('\n\n---\n\n');
+                        console.debug(`[ai-proxy] RAG: ${chunks.length} chunks retrieved`);
+                      }
                     }
                   }
                 }
               } catch (ragErr: any) {
-                // Non-fatal — fall through without RAG context
-                console.warn('[cohere-proxy] RAG retrieval failed (non-fatal):', ragErr?.message);
+                console.warn('[ai-proxy] RAG retrieval failed (non-fatal):', ragErr?.message);
               }
             }
 
-            // Inject RAG chunks into system prompt if we got results
             const finalSystemPrompt = ragContext
               ? `${systemPrompt}\n\n## Relevant Knowledge\n${ragContext}`
               : systemPrompt;
 
-            // ── Map tools to Cohere format ─────────────────────────────────
-            const cohereTools = tools?.map((t: any) => ({
+            // ── Map tools to Anthropic format ──────────────────────────────
+            const anthropicTools = tools?.map((t: any) => ({
               name: t.function.name,
               description: t.function.description,
-              parameterDefinitions: Object.fromEntries(
-                Object.entries(t.function.parameters.properties ?? {}).map(
-                  ([key, val]: [string, any]) => [
-                    key,
-                    {
-                      description: val.description ?? '',
-                      type: val.type ?? 'str',
-                      required: (t.function.parameters.required ?? []).includes(key),
-                    },
-                  ]
-                )
-              ),
+              input_schema: {
+                type: 'object' as const,
+                properties: t.function.parameters.properties ?? {},
+                required: t.function.parameters.required ?? [],
+              },
             }));
 
-            // ── Build Cohere chat history ──────────────────────────────────
-            const chatHistory = history.map((m: any) => ({
-              role: m.role === 'assistant' ? 'CHATBOT' : 'USER',
-              message: m.content,
-            }));
+            // ── Build Anthropic messages array ─────────────────────────────
+            const messages: Anthropic.MessageParam[] = [
+              ...history.map((m: any) => ({
+                role: m.role as 'user' | 'assistant',
+                content: m.content,
+              })),
+              { role: 'user' as const, content: userMessage },
+            ];
 
-            const response = await cohere.chat({
-              model: 'command-r-08-2024',
-              preamble: finalSystemPrompt,
-              chatHistory,
-              message: userMessage,
-              tools: cohereTools?.length ? cohereTools : undefined,
+            // ── Call DeepSeek via Anthropic SDK ────────────────────────────
+            const client = new Anthropic({
+              apiKey,
+              baseURL: 'https://api.deepseek.com/anthropic',
             });
 
-            if (response.toolCalls && response.toolCalls.length > 0) {
+            const response = await client.messages.create({
+              model: 'deepseek-v4-pro',
+              max_tokens: 2048,
+              system: finalSystemPrompt,
+              messages,
+              ...(anthropicTools?.length ? { tools: anthropicTools } : {}),
+            });
+
+            // ── Parse response ─────────────────────────────────────────────
+            const blocks = response.content as any[];
+            const textBlock = blocks.find(b => b.type === 'text');
+            const toolUseBlocks = blocks.filter(b => b.type === 'tool_use');
+
+            if (toolUseBlocks.length > 0) {
               res.setHeader('Content-Type', 'application/json');
               res.end(JSON.stringify({
-                text: response.text ?? '',
-                toolCalls: response.toolCalls.map((tc: any) => ({
-                  name: tc.name,
-                  arguments: tc.parameters ?? {},
+                text: textBlock?.text ?? '',
+                toolCalls: toolUseBlocks.map((b: any) => ({
+                  name: b.name,
+                  arguments: b.input ?? {},
                 })),
               }));
               return;
             }
 
             res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ text: response.text ?? '', toolCalls: [] }));
+            res.end(JSON.stringify({ text: textBlock?.text ?? '', toolCalls: [] }));
+
           } catch (err: any) {
-            console.error('[cohere-proxy] /api/chat error:', err?.message ?? err);
+            console.error('[ai-proxy] /api/chat error:', err?.message ?? err);
             res.statusCode = 500;
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify({ error: err?.message ?? 'Unknown error' }));
@@ -242,6 +250,7 @@ const cohereProxyPlugin = () => {
 export default defineConfig(({ mode }) => {
   // Load .env.local into process.env so server-side plugins can read it
   const env = loadEnv(mode, process.cwd(), '');
+  if (env.DEEPSEEK_API_KEY) process.env.DEEPSEEK_API_KEY = env.DEEPSEEK_API_KEY;
   if (env.COHERE_API_KEY) process.env.COHERE_API_KEY = env.COHERE_API_KEY;
   if (env.SUPABASE_URL) process.env.SUPABASE_URL = env.SUPABASE_URL;
   if (env.SUPABASE_SERVICE_KEY) process.env.SUPABASE_SERVICE_KEY = env.SUPABASE_SERVICE_KEY;
