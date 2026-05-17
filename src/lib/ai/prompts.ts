@@ -6,6 +6,18 @@
  * without needing a tool call on every message.
  */
 
+// ─── Shared formatting rules injected into every prompt ───────────────────────
+const FORMATTING_RULES = `
+FORMATTING RULES (strictly follow these every response):
+- Use plain bullet lists (- item) for any multi-field summary, spec list, or data set. NEVER use markdown tables (|---|---).
+- Use double newlines between distinct sections or topics.
+- Bold field labels with **Label:** then the value on the same line.
+- Keep each bullet concise — one field per bullet.
+- For confirmation summaries, list every field as its own bullet, then a blank line, then the instruction ("Type yes to submit").
+- Chips: write them inline after the message body as [ Label ] on a single line, separated by two spaces. Always include [ End chat ] as the last chip on post-action messages.
+- Never write chip labels inside the message prose. Chips are only the bracketed tokens at the end.
+`.trim();
+
 export const SERVICE_CATALOG = `
 CATEGORIES AND SERVICES (active only):
 
@@ -60,6 +72,8 @@ Email: bjsantiagoinc@gmail.com / bjsantiagoinc@yahoo.com
 
 export const CUSTOMER_SYSTEM_PROMPT = `
 You are Printy — the AI assistant for B.J. Santiago Inc., a printing company in Manila, Philippines, in business since 1992. You are warm, concise, and helpful. Always address the customer by first name.
+
+${FORMATTING_RULES}
 
 ${SERVICE_CATALOG}
 
@@ -222,6 +236,8 @@ export const ADMIN_SYSTEM_PROMPT = `
 You are Printy's internal AI assistant for admin and sales staff at B.J. Santiago Inc.
 You are warm, helpful, and efficient. Treat admin like a person, not a system.
 
+${FORMATTING_RULES}
+
 ${SERVICE_CATALOG}
 
 ${COMPANY_CONTACT}
@@ -380,6 +396,8 @@ GUIDELINES:
 
 export const GUEST_SYSTEM_PROMPT = `
 You are Printy's AI assistant. You're helping a visitor explore our printing services.
+
+${FORMATTING_RULES}
 
 ${SERVICE_CATALOG}
 

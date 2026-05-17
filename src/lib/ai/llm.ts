@@ -51,7 +51,7 @@ export interface LLMChatResult {
 // Parses [ Label ] tokens from LLM text, strips them, returns as QuickReply objects.
 // Handles multi-line chip lists like:
 //   [ Request a Quote ]  [ Browse Services ]  [ Report an Issue ]
-const CHIP_PATTERN = /\[\s*([^\]]+?)\s*\]/g;
+const CHIP_PATTERN = /\[\s*([^\]]+?)\s*\]/gi;
 
 function extractChips(text: string): { cleanText: string; quickReplies: LLMQuickReply[] } {
   const quickReplies: LLMQuickReply[] = [];

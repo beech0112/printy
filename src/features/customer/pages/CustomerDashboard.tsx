@@ -21,6 +21,7 @@ import { useRecentTicket } from '@customer/hooks/useRecentTicket';
 import { useRecentQuote } from '@customer/hooks/useRecentQuote';
 import { useDeviceUtils } from '@shared/hooks/ui';
 import { useCustomerConversationsContext } from '@features/chat/hooks/customer/CustomerConversationsProvider';
+import { useChatAttachments } from '@features/chat/hooks/shared/useChatAttachments';
 
 const TOPIC_MESSAGES: Record<string, string> = {
   servicesOffered: 'What services do you offer?',
@@ -65,6 +66,8 @@ const CustomerDashboardContent: React.FC = () => {
     customerType,
     userId,
   });
+
+  const { handleAttachFiles } = useChatAttachments(send);
 
   // Greet on mount (desktop panel always open)
   useEffect(() => {
@@ -140,6 +143,7 @@ const CustomerDashboardContent: React.FC = () => {
           isTyping={isTyping}
           quickReplies={quickReplies}
           onQuickReply={r => send(typeof r === 'string' ? r : r.label)}
+          onAttachFiles={handleAttachFiles}
           onClose={closeMobileChat}
           onMinimize={closeMobileChat}
           open={true}
@@ -264,6 +268,7 @@ const CustomerDashboardContent: React.FC = () => {
           isTyping={isTyping}
           quickReplies={quickReplies}
           onQuickReply={r => send(typeof r === 'string' ? r : r.label)}
+          onAttachFiles={handleAttachFiles}
           open={true}
         />
       </aside>
