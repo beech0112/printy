@@ -4,7 +4,6 @@ import { useToast } from '@shared/hooks/useToast';
 import { ToastContainer } from '@shared/components';
 import { useResponsiveClasses, useDeviceUtils } from '@shared/hooks/ui';
 import { useNotificationVisibility } from '@shared/hooks/ui/useNotificationVisibility';
-// import { useNotificationSound } from '@shared/hooks';
 import { Bell, X } from 'lucide-react';
 import { Button, Modal } from '@shared/components/ui';
 import {
@@ -17,14 +16,15 @@ import {
   fetchUserNotifications,
   markNotificationAsRead,
   markAllNotificationsAsRead,
-  deleteAllNotifications, // ✅ new import
+  deleteAllNotifications,
 } from '../../utils/notificationUtils';
 
-/**
- * Notification Bell Component
- * Displays notification count and handles real-time updates
- */
-const Notification: React.FC = () => {
+interface NotificationProps {
+  /** Render as an inline sidebar icon instead of a fixed overlay bell */
+  inline?: boolean;
+}
+
+const Notification: React.FC<NotificationProps> = ({ inline = false }) => {
   const [notifications, setNotifications] = useState<UINotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
@@ -34,9 +34,7 @@ const Notification: React.FC = () => {
   const { textClasses, iconClasses } = useResponsiveClasses();
   const { isMobileOrTablet } = useDeviceUtils();
   const { isVisible } = useNotificationVisibility();
-  // const { playSound } = useNotificationSound({ enabled: true, volume: 0.3 });
 
-  // Get current user
   const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
@@ -52,7 +50,6 @@ const Notification: React.FC = () => {
   useEffect(() => {
     if (!user) return;
 
-    // Fetch initial notifications
     const loadNotifications = async () => {
       const { items, unreadCount: unreadTotal } = await fetchUserNotifications(
         user.id,
@@ -64,7 +61,6 @@ const Notification: React.FC = () => {
 
     loadNotifications();
 
-    // Set up real-time listener
     const cleanup = startNotificationListener(user.id, toast, item => {
       setNotifications(prev => {
         const next = [item, ...prev];
@@ -93,19 +89,17 @@ const Notification: React.FC = () => {
     setUnreadCount(0);
   };
 
-  // 🔹 Trigger delete-all modal
   const handleDeleteAll = () => {
     setIsOpen(false);
     setIsDeleteModalOpen(true);
   };
 
-  // 🔹 Confirm delete-all (Supabase integrated)
   const handleConfirmDeleteAll = async () => {
     if (!user || isDeleting) return;
     setIsDeleting(true);
 
     try {
-      await deleteAllNotifications(user.id); // ✅ backend call
+      await deleteAllNotifications(user.id);
       setNotifications([]);
       setUnreadCount(0);
       setIsDeleteModalOpen(false);
@@ -122,8 +116,150 @@ const Notification: React.FC = () => {
     setIsDeleteModalOpen(false);
   };
 
-  if (!user || !isVisible) return null;
+  // Inline mode: always render (sidebar manages its own visibility)
+  // Overlay mode: respect useNotificationVisibility
+  if (!user) return null;
+  if (!inline && !isVisible) return null;
 
+  // ── Inline variant (sidebar bell) ──────────────────────────────────────────
+  if (inline) {
+    return (
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          className="w-10 h-10 p-0 flex items-center justify-center hover:bg-neutral-100 rounded-lg transition-colors relative"
+          aria-label="Notifications"
+        >
+          <Bell className="w-5 h-5 text-neutral-700" />
+          {unreadCount > 0 && (
+            <span className="absolute top-1 right-1 h-4 w-4 text-[10px] bg-red-500 text-white rounded-full flex items-center justify-center leading-none">
+              {unreadCount > 9 ? '9+' : unreadCount}
+            </span>
+          )}
+        </button>
+
+        {isOpen && (
+          <>
+            {/* Backdrop */}
+            <div
+              className="fixed inset-0 z-[99990]"
+              onClick={() => setIsOpen(false)}
+            />
+            {/* Dropdown — opens to the right of the sidebar */}
+            <div
+              className="absolute left-full top-0 ml-2 w-[360px] bg-white rounded-lg shadow-xl border border-gray-200 max-h-96 overflow-hidden z-[99999]"
+            >
+              <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+                <h3 className={`${textClasses.heading} font-semibold text-gray-900`}>
+                  Notifications
+                </h3>
+                <div className="flex items-center gap-2">
+                  {unreadCount > 0 && (
+                    <MarkAllReadButton
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleMarkAllAsRead}
+                      className={textClasses.caption}
+                    />
+                  )}
+                  {notifications.length > 0 && (
+                    <DeleteAllNotificationsButton
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleDeleteAll}
+                      className={textClasses.caption}
+                    />
+                  )}
+                </div>
+              </div>
+
+              <div className="max-h-80 overflow-y-auto">
+                {notifications.length === 0 ? (
+                  <div className="p-4 text-center text-gray-500">
+                    <p className={textClasses.body}>No notifications</p>
+                  </div>
+                ) : (
+                  notifications.map(notification => (
+                    <div
+                      key={notification.id}
+                      className={`p-4 border-b border-gray-100 hover:bg-gray-50 cursor-pointer ${
+                        !notification.isRead ? 'bg-blue-50' : ''
+                      }`}
+                      onClick={() => handleMarkAsRead(notification.id)}
+                    >
+                      <div className="flex-1">
+                        <div className="inline-flex items-center gap-1.5 mb-1">
+                          <h4 className={`${textClasses.body} font-medium text-gray-900`}>
+                            {notification.title}
+                          </h4>
+                          {!notification.isRead && (
+                            <div className="w-2 h-2 bg-blue-500 rounded-full shrink-0" />
+                          )}
+                        </div>
+                        <p className={`${textClasses.caption} text-gray-600 mt-1`}>
+                          {notification.message}
+                        </p>
+                        <p className={`${textClasses.caption} text-gray-400 mt-2`}>
+                          {notification.timestamp}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
+        <Modal isOpen={isDeleteModalOpen} onClose={handleCancelDeleteAll} size="sm">
+          <div className="bg-white rounded-2xl shadow-xl border border-neutral-200">
+            <div className="flex items-center justify-between p-6 pb-4">
+              <h3 className={`${textClasses.heading} font-semibold text-gray-900`}>
+                Delete all notifications?
+              </h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleCancelDeleteAll}
+                className="ml-4 h-8 w-8 p-0 hover:bg-neutral-100"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="px-6 pb-4">
+              <p className={`${textClasses.body} text-gray-600`}>
+                This action deletes all your notifications. Are you sure?
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-3 p-6 pt-4">
+              <Button variant="ghost" size="sm" onClick={handleCancelDeleteAll}>
+                Cancel
+              </Button>
+              <Button
+                variant="error"
+                size="sm"
+                onClick={handleConfirmDeleteAll}
+                loading={isDeleting}
+                disabled={isDeleting}
+              >
+                {isDeleting ? 'Deleting…' : 'Yes, delete all'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+
+        <ToastContainer
+          toasts={toasts}
+          onRemoveToast={toast.remove}
+          position="bottom-right"
+        />
+      </div>
+    );
+  }
+
+  // ── Overlay variant (original fixed bell) ──────────────────────────────────
   return (
     <div
       className="fixed top-0 right-0"
@@ -158,9 +294,7 @@ const Notification: React.FC = () => {
             <div
               className={`${isMobileOrTablet ? 'p-3' : 'p-4'} border-b border-gray-200 flex justify-between items-center`}
             >
-              <h3
-                className={`${textClasses.heading} font-semibold text-gray-900`}
-              >
+              <h3 className={`${textClasses.heading} font-semibold text-gray-900`}>
                 Notifications
               </h3>
               <div className="flex items-center gap-2">
@@ -201,25 +335,19 @@ const Notification: React.FC = () => {
                   >
                     <div className="flex-1">
                       <div className="inline-flex items-center gap-1.5 mb-1">
-                        <h4
-                          className={`${textClasses.body} font-medium text-gray-900`}
-                        >
+                        <h4 className={`${textClasses.body} font-medium text-gray-900`}>
                           {notification.title}
                         </h4>
                         {!notification.isRead && (
                           <div
                             className={`${isMobileOrTablet ? 'w-1.5 h-1.5' : 'w-2 h-2'} bg-blue-500 rounded-full shrink-0`}
-                          ></div>
+                          />
                         )}
                       </div>
-                      <p
-                        className={`${textClasses.caption} text-gray-600 mt-1`}
-                      >
+                      <p className={`${textClasses.caption} text-gray-600 mt-1`}>
                         {notification.message}
                       </p>
-                      <p
-                        className={`${textClasses.caption} text-gray-400 mt-2`}
-                      >
+                      <p className={`${textClasses.caption} text-gray-400 mt-2`}>
                         {notification.timestamp}
                       </p>
                     </div>
@@ -231,17 +359,10 @@ const Notification: React.FC = () => {
         )}
       </div>
 
-      {/* Delete confirmation modal */}
-      <Modal
-        isOpen={isDeleteModalOpen}
-        onClose={handleCancelDeleteAll}
-        size="sm"
-      >
+      <Modal isOpen={isDeleteModalOpen} onClose={handleCancelDeleteAll} size="sm">
         <div className="bg-white rounded-2xl shadow-xl border border-neutral-200">
           <div className="flex items-center justify-between p-6 pb-4">
-            <h3
-              className={`${textClasses.heading} font-semibold text-gray-900`}
-            >
+            <h3 className={`${textClasses.heading} font-semibold text-gray-900`}>
               Delete all notifications?
             </h3>
             <Button

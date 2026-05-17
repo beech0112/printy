@@ -1,6 +1,7 @@
 import React from 'react';
 import { MessageSquare, Settings, LogOut, Bot } from 'lucide-react';
 import { Button, Tooltip } from '@admin/components/shared';
+import Notification from '@shared/components/feedback/Notification';
 
 export interface SidebarPanelProps {
   onOpenChat?: () => void;
@@ -38,6 +39,9 @@ export const SidebarPanel: React.FC<SidebarPanelProps> = ({
             <Bot className="w-6 h-6" />
           </button>
         </Tooltip>
+
+        {/* Notification Bell */}
+        <Notification inline />
 
         {/* Chats Button */}
         {onViewAllChats && (
