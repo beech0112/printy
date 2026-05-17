@@ -58,6 +58,7 @@ export interface ToolExecutionContext {
 // ─── Admin tool names (for role-based filtering in llm.ts) ────────────────────
 
 export const ADMIN_TOOL_NAMES: string[] = [
+  'get_admin_briefing',
   'get_pending_quotes',
   'get_quote_details_admin',
   'send_quote_proposal',
@@ -66,6 +67,9 @@ export const ADMIN_TOOL_NAMES: string[] = [
   'verify_payment',
   'deny_payment',
   'update_order_status',
+  'get_ticket_for_admin',
+  'send_admin_reply',
+  'ticket_change_status',
 ];
 
 // ─── Tool Schemas ─────────────────────────────────────────────────────────────
@@ -424,6 +428,142 @@ export const TOOLS: OllamaTool[] = [
     },
   },
 
+  // ── Customer: ticket flows ──────────────────────────────────────────────────
+  {
+    type: 'function',
+    function: {
+      name: 'create_ticket',
+      description:
+        'Creates a support ticket after the customer has confirmed the draft summary by typing yes. Returns a display_id (TCK-XXXXXX).',
+      parameters: {
+        type: 'object',
+        properties: {
+          subject: { type: 'string', description: 'Short title of the issue.' },
+          issue_type: {
+            type: 'string',
+            enum: ['quality', 'delivery', 'billing', 'cancellation', 'other'],
+            description: 'Category of the issue.',
+          },
+          description: { type: 'string', description: 'Full description of the issue.' },
+          order_id: { type: 'string', description: 'Optional related order display ID.' },
+          attachment_urls: {
+            type: 'array',
+            description: 'Optional uploaded file URLs.',
+            items: { type: 'string' },
+          },
+        },
+        required: ['subject', 'issue_type', 'description'],
+      },
+    },
+  },
+
+  {
+    type: 'function',
+    function: {
+      name: 'get_my_tickets',
+      description: 'Returns the customer\'s support tickets. Use when they ask to view tickets or check status.',
+      parameters: {
+        type: 'object',
+        properties: {
+          ticket_id: { type: 'string', description: 'Optional: fetch a specific ticket by display ID (TCK-XXXXXX).' },
+        },
+      },
+    },
+  },
+
+  {
+    type: 'function',
+    function: {
+      name: 'send_customer_reply',
+      description: 'Appends a customer reply to an existing ticket thread. Updates ticket status to pending_customer_reply → new (admin notified).',
+      parameters: {
+        type: 'object',
+        properties: {
+          ticket_id: { type: 'string', description: 'Display ID of the ticket (TCK-XXXXXX).' },
+          message: { type: 'string', description: 'The customer\'s reply message.' },
+          attachment_urls: {
+            type: 'array',
+            description: 'Optional file URLs attached to this reply.',
+            items: { type: 'string' },
+          },
+        },
+        required: ['ticket_id', 'message'],
+      },
+    },
+  },
+
+  {
+    type: 'function',
+    function: {
+      name: 'resolve_ticket',
+      description: 'Marks a ticket as resolved by the customer. Low-stakes — no typed confirmation needed.',
+      parameters: {
+        type: 'object',
+        properties: {
+          ticket_id: { type: 'string', description: 'Display ID of the ticket (TCK-XXXXXX).' },
+        },
+        required: ['ticket_id'],
+      },
+    },
+  },
+
+  // ── Admin only: ticket management ───────────────────────────────────────────
+  {
+    type: 'function',
+    function: {
+      name: 'get_ticket_for_admin',
+      description: 'Admin only. Returns a ticket\'s full details and conversation thread.',
+      parameters: {
+        type: 'object',
+        properties: {
+          ticket_id: { type: 'string', description: 'Display ID of the ticket (TCK-XXXXXX).' },
+        },
+        required: ['ticket_id'],
+      },
+    },
+  },
+
+  {
+    type: 'function',
+    function: {
+      name: 'send_admin_reply',
+      description: 'Admin only. Appends an admin reply to a ticket thread. Notifies the customer.',
+      parameters: {
+        type: 'object',
+        properties: {
+          ticket_id: { type: 'string', description: 'Display ID of the ticket (TCK-XXXXXX).' },
+          message: { type: 'string', description: 'The admin reply message.' },
+          attachment_urls: {
+            type: 'array',
+            description: 'Optional file URLs.',
+            items: { type: 'string' },
+          },
+        },
+        required: ['ticket_id', 'message'],
+      },
+    },
+  },
+
+  {
+    type: 'function',
+    function: {
+      name: 'ticket_change_status',
+      description: 'Admin only. Changes ticket status. Closing requires typed yes confirmation from admin before calling.',
+      parameters: {
+        type: 'object',
+        properties: {
+          ticket_id: { type: 'string', description: 'Display ID of the ticket (TCK-XXXXXX).' },
+          status: {
+            type: 'string',
+            enum: ['in_progress', 'pending_customer_reply', 'resolved', 'closed'],
+            description: 'New status. Use in_progress for "under review", pending_customer_reply after admin replies.',
+          },
+        },
+        required: ['ticket_id', 'status'],
+      },
+    },
+  },
+
   // ── General ─────────────────────────────────────────────────────────────────
   {
     type: 'function',
@@ -445,6 +585,16 @@ export const TOOLS: OllamaTool[] = [
   },
 
   // ── Admin only ───────────────────────────────────────────────────────────────
+
+  {
+    type: 'function',
+    function: {
+      name: 'get_admin_briefing',
+      description:
+        'Call ONLY on greeting (when userMessage is "__greeting__"). Returns a prioritized summary of all pending work: urgent valued-customer items, quote requests awaiting proposals, payments to verify, tickets with no reply, and orders ready to advance.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
 
   {
     type: 'function',
@@ -1006,6 +1156,8 @@ export async function executeTool(
         const imageUrls: string[] = [];
         if (files && files.length > 0) {
           for (const f of files) {
+            // Skip empty placeholder files created by the Supabase dashboard
+            if (!f.metadata || (f.metadata as any).size === 0) continue;
             const { data: urlData } = context.supabase.storage
               .from('payment-methods')
               .getPublicUrl(`${folder}/${f.name}`);
@@ -1118,7 +1270,199 @@ export async function executeTool(
         return { tool: call.name, result: { escalated: true, reason } };
       }
 
+      // ── Customer ticket tools ────────────────────────────────────────────────
+
+      case 'create_ticket': {
+        const { subject, issue_type, description, order_id, attachment_urls } = call.arguments as {
+          subject: string;
+          issue_type: string;
+          description: string;
+          order_id?: string;
+          attachment_urls?: string[];
+        };
+        if (!context.supabase || !context.userId) {
+          return { tool: call.name, result: null, error: 'Authentication required.' };
+        }
+        const aiContext: Record<string, unknown> = {
+          issue_type,
+          description,
+          attachments: attachment_urls ?? [],
+          thread: [],
+          ...(order_id ? { order_id } : {}),
+        };
+        const { data, error } = await context.supabase
+          .from('inquiries')
+          .insert({
+            profile_id: context.userId,
+            type: 'ticket',
+            subject,
+            body: description,
+            status: 'new',
+            ai_context: aiContext,
+            ...(attachment_urls?.length ? { attachments: attachment_urls } : {}),
+          })
+          .select('display_id, id')
+          .single();
+        if (error) return { tool: call.name, result: null, error: error.message };
+        // Notify admin
+        const { data: adminProfiles } = await context.supabase
+          .from('profiles').select('id').eq('role', 'admin').limit(1);
+        if (adminProfiles?.[0]) {
+          await context.supabase.from('notifications').insert({
+            profile_id: adminProfiles[0].id,
+            channel: 'in_app',
+            status: 'sent',
+            title: 'New support ticket',
+            body: `${data.display_id} — ${subject}`,
+            inquiry_id: data.id,
+            sent_at: new Date().toISOString(),
+          });
+        }
+        return { tool: call.name, result: { success: true, display_id: data.display_id } };
+      }
+
+      case 'get_my_tickets': {
+        const { ticket_id } = call.arguments as { ticket_id?: string };
+        if (!context.supabase || !context.userId) {
+          return { tool: call.name, result: null, error: 'Authentication required.' };
+        }
+        if (ticket_id) {
+          const { data, error } = await context.supabase
+            .from('inquiries')
+            .select('display_id, subject, status, ai_context, created_at, updated_at')
+            .eq('profile_id', context.userId)
+            .eq('type', 'ticket')
+            .or(`display_id.eq.${ticket_id},id.eq.${ticket_id}`)
+            .maybeSingle();
+          if (error) return { tool: call.name, result: null, error: error.message };
+          if (!data) return { tool: call.name, result: null, error: 'Ticket not found.' };
+          return { tool: call.name, result: data };
+        }
+        const { data, error } = await context.supabase
+          .from('inquiries')
+          .select('display_id, subject, status, created_at, updated_at')
+          .eq('profile_id', context.userId)
+          .eq('type', 'ticket')
+          .order('updated_at', { ascending: false });
+        if (error) return { tool: call.name, result: null, error: error.message };
+        return { tool: call.name, result: data ?? [] };
+      }
+
+      case 'send_customer_reply': {
+        const { ticket_id, message, attachment_urls } = call.arguments as {
+          ticket_id: string;
+          message: string;
+          attachment_urls?: string[];
+        };
+        if (!context.supabase || !context.userId) {
+          return { tool: call.name, result: null, error: 'Authentication required.' };
+        }
+        const { data: ticket, error: fetchErr } = await context.supabase
+          .from('inquiries')
+          .select('id, ai_context, profile_id')
+          .eq('profile_id', context.userId)
+          .eq('type', 'ticket')
+          .or(`display_id.eq.${ticket_id},id.eq.${ticket_id}`)
+          .maybeSingle();
+        if (fetchErr || !ticket) {
+          return { tool: call.name, result: null, error: fetchErr?.message ?? 'Ticket not found.' };
+        }
+        const ctx = (ticket.ai_context as any) ?? {};
+        const thread = Array.isArray(ctx.thread) ? ctx.thread : [];
+        thread.push({
+          role: 'customer',
+          message,
+          files: attachment_urls ?? [],
+          timestamp: new Date().toISOString(),
+        });
+        const { error } = await context.supabase
+          .from('inquiries')
+          .update({ ai_context: { ...ctx, thread }, status: 'new' })
+          .eq('id', ticket.id);
+        if (error) return { tool: call.name, result: null, error: error.message };
+        // Notify admin
+        const { data: adminProfiles } = await context.supabase
+          .from('profiles').select('id').eq('role', 'admin').limit(1);
+        if (adminProfiles?.[0]) {
+          await context.supabase.from('notifications').insert({
+            profile_id: adminProfiles[0].id,
+            channel: 'in_app',
+            status: 'sent',
+            title: 'Customer replied to ticket',
+            body: `${ticket_id} — ${message.slice(0, 80)}`,
+            inquiry_id: ticket.id,
+            sent_at: new Date().toISOString(),
+          });
+        }
+        return { tool: call.name, result: { success: true, ticket_id } };
+      }
+
+      case 'resolve_ticket': {
+        const { ticket_id } = call.arguments as { ticket_id: string };
+        if (!context.supabase || !context.userId) {
+          return { tool: call.name, result: null, error: 'Authentication required.' };
+        }
+        const { error } = await context.supabase
+          .from('inquiries')
+          .update({ status: 'resolved', resolved_at: new Date().toISOString() })
+          .eq('profile_id', context.userId)
+          .eq('type', 'ticket')
+          .or(`display_id.eq.${ticket_id},id.eq.${ticket_id}`);
+        if (error) return { tool: call.name, result: null, error: error.message };
+        return { tool: call.name, result: { success: true, ticket_id } };
+      }
+
       // ── Admin tools ──────────────────────────────────────────────────────────
+
+      case 'get_admin_briefing': {
+        if (!context.supabase) {
+          return { tool: call.name, result: null, error: 'Supabase not available.' };
+        }
+        const sb = context.supabase;
+
+        const [quotesRes, paymentsRes, ticketsRes, ordersRes] = await Promise.all([
+          // Pending quote requests
+          sb.from('inquiries')
+            .select('display_id, subject, ai_context, created_at, profiles(first_name, last_name, customer_type)')
+            .eq('type', 'quote_request')
+            .in('status', ['new', 'in_progress'])
+            .order('created_at', { ascending: true }),
+
+          // Payments awaiting verification
+          sb.from('orders')
+            .select('display_id, total_amount, profiles(first_name, last_name, customer_type)')
+            .eq('status', 'verifying_payment')
+            .order('updated_at', { ascending: true }),
+
+          // Tickets with no admin reply yet (status = new)
+          sb.from('inquiries')
+            .select('display_id, subject, status, created_at, profiles(first_name, last_name)')
+            .eq('type', 'ticket')
+            .in('status', ['new', 'in_progress'])
+            .order('created_at', { ascending: true }),
+
+          // Orders ready to advance
+          sb.from('orders')
+            .select('display_id, status, total_amount, profiles(first_name, last_name)')
+            .in('status', ['for_pickup', 'for_delivery', 'processing'])
+            .order('updated_at', { ascending: true }),
+        ]);
+
+        const quotes = quotesRes.data ?? [];
+        const urgentQuotes = quotes.filter(q => (q.ai_context as any)?.urgent === true);
+        const regularQuotes = quotes.filter(q => (q.ai_context as any)?.urgent !== true);
+
+        return {
+          tool: call.name,
+          result: {
+            urgent_count: urgentQuotes.length,
+            quote_requests: { urgent: urgentQuotes, regular: regularQuotes, total: quotes.length },
+            pending_payments: paymentsRes.data ?? [],
+            open_tickets: ticketsRes.data ?? [],
+            orders_to_advance: ordersRes.data ?? [],
+          },
+        };
+      }
 
       case 'get_pending_quotes': {
         if (!context.supabase) {
@@ -1280,12 +1624,110 @@ export async function executeTool(
         }
         const { data, error } = await context.supabase
           .from('orders')
-          .select('display_id, status, payment_status, total_amount, proof_files, created_at, profiles(display_name, email, customer_type)')
-          .eq('payment_status', 'pending')
-          .not('proof_files', 'eq', '{}')
-          .order('created_at', { ascending: true });
+          .select('display_id, status, payment_status, total_amount, proof_files, updated_at, profiles(first_name, last_name, display_name, email, customer_type)')
+          .eq('status', 'verifying_payment')
+          .order('updated_at', { ascending: true });
         if (error) return { tool: call.name, result: null, error: error.message };
         return { tool: call.name, result: data ?? [] };
+      }
+
+      case 'get_ticket_for_admin': {
+        const { ticket_id } = call.arguments as { ticket_id: string };
+        if (!context.supabase) {
+          return { tool: call.name, result: null, error: 'Supabase not available.' };
+        }
+        const { data, error } = await context.supabase
+          .from('inquiries')
+          .select('id, display_id, subject, status, ai_context, created_at, updated_at, attachments, profiles(first_name, last_name, display_name, email, customer_type)')
+          .eq('type', 'ticket')
+          .or(`display_id.eq.${ticket_id},id.eq.${ticket_id}`)
+          .maybeSingle();
+        if (error) return { tool: call.name, result: null, error: error.message };
+        if (!data) return { tool: call.name, result: null, error: 'Ticket not found.' };
+        return { tool: call.name, result: data };
+      }
+
+      case 'send_admin_reply': {
+        const { ticket_id, message, attachment_urls } = call.arguments as {
+          ticket_id: string;
+          message: string;
+          attachment_urls?: string[];
+        };
+        if (!context.supabase || !context.userId) {
+          return { tool: call.name, result: null, error: 'Authentication required.' };
+        }
+        const { data: ticket, error: fetchErr } = await context.supabase
+          .from('inquiries')
+          .select('id, ai_context, profile_id')
+          .eq('type', 'ticket')
+          .or(`display_id.eq.${ticket_id},id.eq.${ticket_id}`)
+          .maybeSingle();
+        if (fetchErr || !ticket) {
+          return { tool: call.name, result: null, error: fetchErr?.message ?? 'Ticket not found.' };
+        }
+        const ctx = (ticket.ai_context as any) ?? {};
+        const thread = Array.isArray(ctx.thread) ? ctx.thread : [];
+        thread.push({
+          role: 'admin',
+          message,
+          files: attachment_urls ?? [],
+          timestamp: new Date().toISOString(),
+        });
+        const { error } = await context.supabase
+          .from('inquiries')
+          .update({ ai_context: { ...ctx, thread }, status: 'pending_customer_reply' })
+          .eq('id', ticket.id);
+        if (error) return { tool: call.name, result: null, error: error.message };
+        // Notify customer
+        await context.supabase.from('notifications').insert({
+          profile_id: ticket.profile_id,
+          channel: 'in_app',
+          status: 'sent',
+          title: 'Support ticket update',
+          body: `Our team replied to your ticket ${ticket_id}: ${message.slice(0, 80)}`,
+          inquiry_id: ticket.id,
+          sent_at: new Date().toISOString(),
+        });
+        return { tool: call.name, result: { success: true, ticket_id } };
+      }
+
+      case 'ticket_change_status': {
+        const { ticket_id, status } = call.arguments as {
+          ticket_id: string;
+          status: 'in_progress' | 'pending_customer_reply' | 'resolved' | 'closed';
+        };
+        if (!context.supabase) {
+          return { tool: call.name, result: null, error: 'Supabase not available.' };
+        }
+        const { data: ticket, error: fetchErr } = await context.supabase
+          .from('inquiries')
+          .select('id, profile_id')
+          .eq('type', 'ticket')
+          .or(`display_id.eq.${ticket_id},id.eq.${ticket_id}`)
+          .maybeSingle();
+        if (fetchErr || !ticket) {
+          return { tool: call.name, result: null, error: fetchErr?.message ?? 'Ticket not found.' };
+        }
+        const updateData: Record<string, unknown> = { status };
+        if (status === 'resolved') updateData.resolved_at = new Date().toISOString();
+        const { error } = await context.supabase
+          .from('inquiries')
+          .update(updateData)
+          .eq('id', ticket.id);
+        if (error) return { tool: call.name, result: null, error: error.message };
+        // Notify customer on resolved or closed
+        if (status === 'resolved' || status === 'closed') {
+          await context.supabase.from('notifications').insert({
+            profile_id: ticket.profile_id,
+            channel: 'in_app',
+            status: 'sent',
+            title: status === 'resolved' ? 'Ticket resolved' : 'Ticket closed',
+            body: `Your support ticket ${ticket_id} has been marked as ${status}.`,
+            inquiry_id: ticket.id,
+            sent_at: new Date().toISOString(),
+          });
+        }
+        return { tool: call.name, result: { success: true, ticket_id, new_status: status } };
       }
 
       case 'verify_payment': {
